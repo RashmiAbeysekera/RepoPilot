@@ -110,5 +110,4 @@ in real values locally.
 
 ## Day 2 Preview
 
-Day 2 will focus on GitHub connectivity: authenticating with GitHub and
-fetching basic repository metadata — still with no AI involved yet.
+Day 2 will focus on GitHub connectivity: 
