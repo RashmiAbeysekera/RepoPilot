@@ -103,7 +103,67 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-/** POST /api/repositories — add a new repository. */
+/** POST /api/repositories/import — import a public GitHub repository. */
+export async function importRepository(
+  githubUrl: string
+): Promise<ApiResult<Repository>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ github_url: githubUrl }),
+    });
+
+    if (response.status === 201) {
+      const data = (await response.json()) as Repository;
+      return { ok: true, data };
+    }
+
+    const errorBody = (await response.json()) as ApiError;
+    return {
+      ok: false,
+      error: errorBody.detail ?? `Import failed with status ${response.status}`,
+    };
+  } catch {
+    return { ok: false, error: "Could not reach the backend. Is it running?" };
+  }
+}
+
+export interface IngestResult {
+  repository_id: string;
+  repository: string;
+  default_branch: string;
+  files_discovered: number;
+  source_files: number;
+  ignored_files: number;
+  file_paths: string[];
+}
+
+/** POST /api/repositories/{id}/ingest — discover and analyze repository source files. */
+export async function ingestRepository(
+  id: string
+): Promise<ApiResult<IngestResult>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories/${id}/ingest`, {
+      method: "POST",
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as IngestResult;
+      return { ok: true, data };
+    }
+
+    const errorBody = (await response.json()) as ApiError;
+    return {
+      ok: false,
+      error: errorBody.detail ?? `Analysis failed with status ${response.status}`,
+    };
+  } catch {
+    return { ok: false, error: "Could not reach the backend during analysis." };
+  }
+}
+
+/** POST /api/repositories — add a new repository manually. */
 export async function addRepository(
   githubUrl: string
 ): Promise<ApiResult<Repository>> {
@@ -129,6 +189,7 @@ export async function addRepository(
     return { ok: false, error: "Could not reach the backend. Is it running?" };
   }
 }
+
 
 /** GET /api/repositories — list all saved repositories. */
 export async function listRepositories(): Promise<ApiResult<Repository[]>> {

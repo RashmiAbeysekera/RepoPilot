@@ -1,21 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { addRepository } from "@/lib/api";
+import { importRepository } from "@/lib/api";
 
 interface RepositoryFormProps {
-  /** Called with the newly created repository after a successful add. */
+  /** Called with the newly created repository after a successful import. */
   onRepositoryAdded: () => void;
 }
 
 /**
- * Form for adding a new GitHub repository.
+ * Form for importing a public GitHub repository.
  *
- * The user enters a GitHub URL and clicks "Add Repository".
- * We send a POST request to the FastAPI backend, which validates
- * the URL, saves it to PostgreSQL, and returns the saved record.
- *
- * Error states are surfaced directly in the form — no page reload.
+ * The user enters a GitHub URL and clicks "Import Repository".
+ * We send a POST request to /api/repositories/import, which fetches metadata
+ * via GitHub REST API, saves it to PostgreSQL, and returns the saved record.
  */
 export default function RepositoryForm({ onRepositoryAdded }: RepositoryFormProps) {
   const [url, setUrl] = useState("");
@@ -24,24 +22,24 @@ export default function RepositoryForm({ onRepositoryAdded }: RepositoryFormProp
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault(); // prevent browser page reload on form submit
+    event.preventDefault();
     setError(null);
     setSuccessMessage(null);
 
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
-      setError("Please enter a GitHub repository URL.");
+      setError("Please enter a public GitHub repository URL.");
       return;
     }
 
     setIsSubmitting(true);
-    const result = await addRepository(trimmedUrl);
+    const result = await importRepository(trimmedUrl);
     setIsSubmitting(false);
 
     if (result.ok) {
-      setSuccessMessage(`Added ${result.data.full_name}`);
-      setUrl(""); // clear the input for the next entry
-      onRepositoryAdded(); // tell the parent to refresh the list
+      setSuccessMessage(`Successfully imported ${result.data.full_name}`);
+      setUrl("");
+      onRepositoryAdded();
     } else {
       setError(result.error);
     }
@@ -49,18 +47,18 @@ export default function RepositoryForm({ onRepositoryAdded }: RepositoryFormProp
 
   return (
     <form onSubmit={handleSubmit} className="repopilot-card">
-      <h2 className="card-title">Add Repository</h2>
+      <h2 className="card-title">Import GitHub Repository</h2>
 
       <div className="form-group">
         <label htmlFor="repo-url-input" className="form-label">
-          GitHub Repository URL
+          Public GitHub Repository URL
         </label>
         <input
           id="repo-url-input"
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://github.com/owner/repository"
+          placeholder="https://github.com/facebook/react"
           disabled={isSubmitting}
           className="form-input"
           aria-describedby={error ? "repo-url-error" : undefined}
@@ -80,13 +78,14 @@ export default function RepositoryForm({ onRepositoryAdded }: RepositoryFormProp
       )}
 
       <button
-        id="add-repository-btn"
+        id="import-repository-btn"
         type="submit"
         disabled={isSubmitting}
         className="btn-primary"
       >
-        {isSubmitting ? "Adding..." : "Add Repository"}
+        {isSubmitting ? "Importing..." : "Import Repository"}
       </button>
     </form>
   );
 }
+
