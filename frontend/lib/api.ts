@@ -11,6 +11,10 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
 
+// -------------------------------------------------------------------------
+// Health check types and functions
+// -------------------------------------------------------------------------
+
 export type HealthStatus = "healthy" | "unavailable";
 
 export interface HealthResponse {
@@ -71,5 +75,90 @@ export async function checkBackendHealth(): Promise<HealthCheckResult> {
     return { ok: false, reason: "network" };
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+// -------------------------------------------------------------------------
+// Repository types and functions
+// -------------------------------------------------------------------------
+
+/** Shape of a repository object returned by the API. */
+export interface Repository {
+  id: string;
+  name: string;
+  full_name: string;
+  github_url: string;
+  description: string | null;
+  default_branch: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Shape of an API error response from FastAPI. */
+interface ApiError {
+  detail: string;
+}
+
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+/** POST /api/repositories — add a new repository. */
+export async function addRepository(
+  githubUrl: string
+): Promise<ApiResult<Repository>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ github_url: githubUrl }),
+    });
+
+    if (response.status === 201) {
+      const data = (await response.json()) as Repository;
+      return { ok: true, data };
+    }
+
+    // FastAPI sends error details in { detail: "..." }
+    const errorBody = (await response.json()) as ApiError;
+    return {
+      ok: false,
+      error: errorBody.detail ?? `Request failed with status ${response.status}`,
+    };
+  } catch {
+    return { ok: false, error: "Could not reach the backend. Is it running?" };
+  }
+}
+
+/** GET /api/repositories — list all saved repositories. */
+export async function listRepositories(): Promise<ApiResult<Repository[]>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories`);
+    if (!response.ok) {
+      return { ok: false, error: `Failed to load repositories (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as Repository[];
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach the backend. Is it running?" };
+  }
+}
+
+/** DELETE /api/repositories/{id} — remove a saved repository. */
+export async function deleteRepository(id: string): Promise<ApiResult<null>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories/${id}`, {
+      method: "DELETE",
+    });
+    if (response.status === 204) {
+      return { ok: true, data: null };
+    }
+    const errorBody = (await response.json()) as ApiError;
+    return {
+      ok: false,
+      error: errorBody.detail ?? `Delete failed with status ${response.status}`,
+    };
+  } catch {
+    return { ok: false, error: "Could not reach the backend. Is it running?" };
   }
 }

@@ -16,22 +16,30 @@ interface StatusRowProps {
  * new state later is a one-line change.
  */
 const STATE_CONFIG: Record<StatusState, { dot: string; text: string; color: string }> = {
-  running: { dot: "●", text: "Running", color: "text-emerald-500" },
-  healthy: { dot: "✓", text: "Healthy", color: "text-emerald-500" },
-  checking: { dot: "●", text: "Checking...", color: "text-amber-500 animate-pulse" },
-  unavailable: { dot: "✗", text: "Unavailable", color: "text-red-500" },
-  "not-configured": { dot: "○", text: "Not configured", color: "text-neutral-400" },
+  running:          { dot: "●", text: "Running",       color: "#22c55e" },
+  healthy:          { dot: "✓", text: "Healthy",       color: "#22c55e" },
+  checking:         { dot: "●", text: "Checking...",   color: "#f59e0b" },
+  unavailable:      { dot: "✗", text: "Unavailable",   color: "#ef4444" },
+  "not-configured": { dot: "○", text: "Not configured", color: "#5c6080" },
 };
 
 export default function StatusRow({ label, state }: StatusRowProps) {
   const config = STATE_CONFIG[state];
+  const isChecking = state === "checking";
 
   return (
-    <div className="flex items-center justify-between py-2 border-b border-neutral-800/10 last:border-b-0">
-      <span className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
+    <div className="status-row">
+      <span style={{ fontSize: "0.875rem", fontWeight: 500, color: "#9098b8" }}>
         {label}
       </span>
-      <span className={`text-sm font-semibold ${config.color}`}>
+      <span
+        style={{
+          fontSize: "0.875rem",
+          fontWeight: 600,
+          color: config.color,
+          animation: isChecking ? "pulse 1.5s ease-in-out infinite" : "none",
+        }}
+      >
         {config.dot} {config.text}
       </span>
     </div>

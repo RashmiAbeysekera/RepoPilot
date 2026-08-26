@@ -35,9 +35,6 @@ export default function SystemStatusCard() {
     } else {
       setBackendState("unavailable");
       setDatabaseState("unavailable");
-      // User-facing message stays generic; the real cause (network,
-      // timeout, unexpected shape) is already logged to the console
-      // for debugging — see lib/api.ts.
       setErrorMessage("Couldn't reach the backend. Is it running on http://localhost:8000?");
     }
 
@@ -45,10 +42,10 @@ export default function SystemStatusCard() {
   }
 
   return (
-    <div className="w-full max-w-md rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-6 shadow-sm">
-      <h2 className="text-lg font-semibold mb-4">System Status</h2>
+    <div className="repopilot-card">
+      <h2 className="card-title">System Status</h2>
 
-      <div className="flex flex-col">
+      <div>
         <StatusRow label="Frontend" state="running" />
         <StatusRow label="Backend" state={backendState} />
         <StatusRow label="Database" state={databaseState} />
@@ -57,13 +54,16 @@ export default function SystemStatusCard() {
       </div>
 
       {errorMessage && (
-        <p className="mt-4 text-sm text-red-500">{errorMessage}</p>
+        <p className="feedback-error" style={{ marginTop: "12px" }}>
+          {errorMessage}
+        </p>
       )}
 
       <button
+        id="check-health-btn"
         onClick={handleCheckHealth}
         disabled={isChecking}
-        className="mt-5 w-full rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-medium py-2 text-sm hover:opacity-90 disabled:opacity-50 transition-opacity"
+        className="status-check-btn"
       >
         {isChecking ? "Checking..." : "Check System Health"}
       </button>
