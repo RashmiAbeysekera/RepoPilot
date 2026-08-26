@@ -23,10 +23,81 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.repository import RepositoryCreate, RepositoryResponse
-from app.services import repository_service
+from app.schemas.repository import (
+    RepositoryCreate,
+    RepositoryImportRequest,
+    RepositoryIngestResponse,
+    RepositoryResponse,
+)
+from app.services import github_service, repository_ingestion_service, repository_service
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
+
+
+@router.post(
+    "/import",
+    response_model=RepositoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a public GitHub repository",
+)
+def import_repository(
+    data: RepositoryImportRequest,
+    db: Session = Depends(get_db),
+) -> RepositoryResponse:
+    """
+    Import a public GitHub repository by URL.
+    Fetches live repository metadata from GitHub REST API and saves to PostgreSQL.
+    """
+    try:
+        repository = repository_service.import_repository_from_github(db, data.github_url)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    return RepositoryResponse.model_validate(repository)
+
+
+@router.post(
+    "/{repository_id}/ingest",
+    response_model=RepositoryIngestResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ingest and analyze repository file tree",
+)
+def ingest_repository(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> RepositoryIngestResponse:
+    """
+    Discover, filter, and inspect source files in a saved repository via GitHub REST API.
+    Returns calculated discovery metrics (files_discovered, source_files, ignored_files).
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    try:
+        owner, repo = github_service.parse_github_url(repository.github_url)
+        summary = repository_ingestion_service.ingest_repository_contents(owner, repo)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    return RepositoryIngestResponse(
+        repository_id=repository.id,
+        repository=summary["repository"],
+        default_branch=repository.default_branch,
+        files_discovered=summary["files_discovered"],
+        source_files=summary["source_files"],
+        ignored_files=summary["ignored_files"],
+        file_paths=summary["file_paths"],
+    )
 
 
 @router.post(
@@ -57,6 +128,7 @@ def create_repository(
         ) from error
 
     return RepositoryResponse.model_validate(repository)
+
 
 
 @router.get(

@@ -72,3 +72,30 @@ class RepositoryResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RepositoryImportRequest(BaseModel):
+    """
+    Schema for POST /api/repositories/import request body.
+    """
+
+    github_url: str = Field(
+        ...,
+        description="Public HTTPS URL to the GitHub repository to import.",
+        examples=["https://github.com/facebook/react"],
+    )
+
+
+class RepositoryIngestResponse(BaseModel):
+    """
+    Schema for POST /api/repositories/{id}/ingest response body.
+    """
+
+    repository_id: uuid.UUID
+    repository: str
+    default_branch: str
+    files_discovered: int
+    source_files: int
+    ignored_files: int
+    file_paths: list[str] = Field(default_factory=list)
+

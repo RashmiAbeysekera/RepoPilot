@@ -28,9 +28,50 @@ from sqlalchemy.orm import Session
 
 from app.models.repository import Repository
 from app.schemas.repository import RepositoryCreate
+from app.services import github_service
+
+
+def import_repository_from_github(db: Session, github_url: str) -> Repository:
+    """
+    Import a public repository from GitHub.
+
+    1. Parse owner and repo from URL.
+    2. Fetch live metadata from GitHub REST API.
+    3. Check for duplicates in PostgreSQL database.
+    4. Save and return the populated repository.
+    """
+    owner, repo = github_service.parse_github_url(github_url)
+    metadata = github_service.fetch_repository_metadata(owner, repo)
+
+    # Check for existing full_name or github_url
+    existing = (
+        db.query(Repository)
+        .filter(
+            (Repository.full_name == metadata["full_name"])
+            | (Repository.github_url == metadata["github_url"])
+        )
+        .first()
+    )
+    if existing:
+        raise ValueError(f"Repository '{metadata['full_name']}' is already imported.")
+
+    repository = Repository(
+        name=metadata["name"],
+        full_name=metadata["full_name"],
+        github_url=metadata["github_url"],
+        description=metadata["description"],
+        default_branch=metadata["default_branch"],
+    )
+
+    db.add(repository)
+    db.commit()
+    db.refresh(repository)
+
+    return repository
 
 
 def _parse_github_url(github_url: str) -> tuple[str, str]:
+
     """
     Extract (name, full_name) from a GitHub URL.
 
