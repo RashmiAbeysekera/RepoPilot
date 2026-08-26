@@ -1,8 +1,15 @@
 """
 RepoPilot AI — FastAPI backend entry point.
 
-Day 1 scope: a single health-check endpoint that proves the
-Next.js -> FastAPI -> PostgreSQL chain works end to end.
+This file is the application root. Its responsibilities are:
+  - Create the FastAPI app instance
+  - Register middleware (CORS)
+  - Mount routers (health, repositories, ...)
+  - Provide a basic root endpoint
+
+Business logic lives in app/services/.
+Database setup lives in app/core/database.py.
+Route handlers live in app/api/.
 """
 
 import logging
@@ -10,8 +17,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import FRONTEND_ORIGIN
-from app.database import check_database_health
+from app.core.config import FRONTEND_ORIGIN
+from app.core.database import check_database_health
+from app.api import repositories as repositories_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("repopilot.main")
@@ -19,10 +27,10 @@ logger = logging.getLogger("repopilot.main")
 app = FastAPI(
     title="RepoPilot AI API",
     description="Backend API for RepoPilot AI — an AI-powered software engineering assistant.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
-# --- CORS -------------------------------------------------------------
+# --- CORS ---------------------------------------------------------------
 # The frontend (http://localhost:3000) and backend (http://localhost:8000)
 # are different origins (different ports count as different origins).
 # Browsers block cross-origin requests by default for security — this is
@@ -36,10 +44,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_ORIGIN],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],  # DELETE added for repository removal
     allow_headers=["*"],
 )
 
+# --- Routers ------------------------------------------------------------
+# Including a router mounts all its endpoints onto the app.
+# The router's own prefix (/api/repositories) is set inside the router file.
+app.include_router(repositories_router.router)
+
+
+# --- Endpoints ----------------------------------------------------------
 
 @app.get("/")
 def root() -> dict[str, str]:
