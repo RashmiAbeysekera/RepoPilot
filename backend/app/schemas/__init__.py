@@ -22,10 +22,15 @@ from app.schemas.repository_file import (
     RepositoryFileResponse,
 )
 
+from app.schemas.rag import (
+    RAGAnswerResponse,
+    RAGQuestionRequest,
+    RAGSourceReference,
+)
 from app.schemas.search import (
     SearchRequest,
-    SearchResultItem,
     SearchResponse,
+    SearchResultItem,
 )
 
 __all__ = [
@@ -45,4 +50,8 @@ __all__ = [
     "SearchRequest",
     "SearchResultItem",
     "SearchResponse",
+    "RAGQuestionRequest",
+    "RAGSourceReference",
+    "RAGAnswerResponse",
 ]
+
