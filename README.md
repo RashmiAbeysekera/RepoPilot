@@ -8,9 +8,9 @@ This is an incremental learning project — each day adds a new layer of full-st
 
 ## Project Status
 
-**Day 4 — Persistent Repository File Storage and Ingestion**
+**Day 5 — Code Chunking & Derived Text Data Persistence**
 
-The architecture persists discovered GitHub repository files directly into PostgreSQL:
+The architecture divides stored source and documentation files into line-based chunks stored in PostgreSQL:
 
 ```
 GitHub Public Repository
@@ -18,52 +18,64 @@ GitHub Public Repository
        ▼ GitHub REST API
 FastAPI Ingestion Service
        │
-       ▼ SQL Alchemy ORM & Idempotent Upsert
-PostgreSQL / Supabase (repository_files table)
+       ▼ SQL Alchemy ORM (repository_files table)
+PostgreSQL / Supabase
+       │
+       ▼ Local Chunking Service (CHUNK_SIZE=100, CHUNK_OVERLAP=10)
+PostgreSQL / Supabase (code_chunks table)
        │
        ▼ REST API
-Next.js 16 UI (File Explorer & Code Viewer)
+Next.js 16 UI (Chunk Explorer & Code Chunk Inspector)
 ```
 
-Users can import public GitHub repositories, ingest their source files into PostgreSQL with database-level uniqueness constraints, browse stored repository file trees in an interactive UI, and view source code/documentation contents directly in the web app.
+### What is Code Chunking and Why RepoPilot Needs It?
+Large source code and documentation files cannot fit into AI prompt contexts as single monolithic blocks without diluting relevance or exceeding token limits. Code chunking splits files into smaller, contiguous text segments with line number metadata (`start_line` and `end_line`), laying the groundwork for precise vector retrieval and RAG citations.
 
 > [!NOTE]
-> **Important Disclaimer**: Day 4 does **NOT** implement RAG, vector embeddings, `pgvector`, code chunking, or Gemini AI endpoints. Those are planned for future phases.
+> **Important Disclaimer**: Day 5 implements **purely local, line-based text chunking**. It does **NOT** call GitHub again during chunk generation, and does **NOT** implement vector embeddings, `pgvector`, RAG, Gemini LLM calls, or agent orchestration today.
 
 ---
 
-## Database Architecture (Day 4)
+## Database Architecture (Day 5)
 
-### `Repository` → `RepositoryFile` One-to-Many Relationship
-
-A single `Repository` record can own many `RepositoryFile` records.
+### Database Schema Hierarchy
 
 ```
 repositories
----------------------------------
-id (UUID)
-name
-full_name
-github_url
-default_branch
-
+      │
+      ▼ (one-to-many)
 repository_files
----------------------------------
-id (UUID)
-repository_id (UUID, Foreign Key -> repositories.id, ON DELETE CASCADE)
-path (e.g., "src/components/Login.jsx")
-name (e.g., "Login.jsx")
-extension (e.g., ".jsx")
-size (bytes)
-file_type ("source", "documentation", "configuration")
-content (Text)
-created_at (Timestamp)
-updated_at (Timestamp)
+      │
+      ▼ (one-to-many)
+code_chunks
 ```
 
-### Database Uniqueness Constraint
+### `CodeChunk` Model Fields
 
-To enforce database integrity, a unique constraint on `(repository_id, path)` prevents duplicate file records for the same repository. Re-running repository ingestion executes an idempotent upsert strategy (inserting new files, updating modified files, and deleting stale files transactionally).
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key (`gen_random_uuid()`) |
+| `repository_file_id` | UUID | Foreign Key -> `repository_files.id` (`ON DELETE CASCADE`) |
+| `chunk_index` | Integer | 0-based position of the chunk in the file |
+| `content` | Text | Actual text content of the chunk |
+| `start_line` | Integer | 1-based start line in original file |
+| `end_line` | Integer | 1-based end line in original file |
+| `created_at` | DateTime | Timestamp with timezone |
+| `updated_at` | DateTime | Timestamp with timezone |
+
+---
+
+## Chunking Strategy & Algorithm
+
+- **Deterministic Line-Based Strategy**:
+  - `CHUNK_SIZE_LINES = 100`
+  - `CHUNK_OVERLAP_LINES = 10`
+- **Rules**:
+  - Empty files (`0` lines or whitespace-only) create `0` chunks.
+  - Small files (`<= 100` lines) create `1` chunk spanning lines `1` to `N`.
+  - Large files (`> 100` lines) create multiple overlapping chunks incrementing by `step = CHUNK_SIZE_LINES - CHUNK_OVERLAP_LINES = 90` lines.
+- **Idempotent Regeneration**:
+  Re-running chunk generation for a file or repository transactionally deletes existing chunks for those files before inserting new chunks, guaranteeing zero duplicate records.
 
 ---
 
@@ -72,41 +84,16 @@ To enforce database integrity, a unique constraint on `(repository_id, path)` pr
 - `GET  /api/health` — Backend process and PostgreSQL database health check
 - `POST /api/repositories/import` — Import a public GitHub repository by URL
 - `POST /api/repositories/{id}/ingest` — Ingest repository files and persist in PostgreSQL
-- `GET  /api/repositories/{repository_id}/files` — List stored files for a repository (excluding large content body)
-- `GET  /api/repositories/{repository_id}/files/{file_id}` — Retrieve a single stored file with full text content (with cross-repository access protection)
+- `GET  /api/repositories/{repository_id}/files` — List stored files for a repository
+- `GET  /api/repositories/{repository_id}/files/{file_id}` — Retrieve a single stored file
+- `POST /api/repositories/{repository_id}/chunks/generate` — Generate code chunks for all stored files in a repository
+- `POST /api/repositories/{repository_id}/files/{file_id}/chunks/generate` — Generate code chunks for a single file
+- `GET  /api/repositories/{repository_id}/chunks` — List chunk metadata for a repository
+- `GET  /api/repositories/{repository_id}/chunks/{chunk_id}` — Retrieve full content for a single code chunk
 - `POST /api/repositories` — Add a repository manually
 - `GET  /api/repositories` — List all saved repositories
 - `GET  /api/repositories/{id}` — Get a repository by ID
-- `DELETE /api/repositories/{id}` — Delete a repository (cascade deletes all stored files)
-
----
-
-## File Ingestion & Safety Thresholds
-
-### Supported Extensions
-- Source: `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.html`, `.css`, `.sh`, `.sql`
-- Documentation: `.md`, `.txt`, `.rst`
-- Configuration: `.json`, `.yaml`, `.yml`, `.xml`, `.toml`
-
-### Ignored Directories
-- `.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.next`, `coverage`, `vendor`, `.venv`, `.idea`, `.vscode`
-
-### Ignored Extensions & Safety Limits
-- Media & Binaries: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.mp3`, `.pdf`, `.zip`, `.exe`, `.ico`, `.woff`, `.ttf`, `.tar`
-- Max File Size: `500 KB` per file limit (oversized files are safely skipped without failing the ingestion run)
-- Repository Cap: `200` file limit per repository ingestion run
-
----
-
-## Future Features (Planned for Later Days)
-
-The following features are **not yet implemented**:
-- Code chunking & sliding window parsing
-- Embeddings and vector search (`pgvector`)
-- RAG (Retrieval-Augmented Generation) context assembly
-- Gemini API integration for Q&A
-- GitHub OAuth login & user management
-- Docker / Production deployment
+- `DELETE /api/repositories/{id}` — Delete a repository (cascade deletes files and chunks)
 
 ---
 
@@ -150,9 +137,9 @@ Runs at [http://localhost:3000](http://localhost:3000).
 
 ## Running Tests
 
-Run the complete 39-test suite:
+Run the complete 50-test suite:
 
 ```bash
-# From project root with venv active:
-backend\venv\Scripts\pytest backend\tests\ -v
+# From backend directory with venv active:
+venv\Scripts\python -m pytest
 ```
