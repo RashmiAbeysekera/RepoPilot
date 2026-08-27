@@ -23,6 +23,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.schemas.chunk_embedding import (
+    EmbeddingGenerationResponse,
+    EmbeddingStatusResponse,
+)
 from app.schemas.code_chunk import (
     ChunkGenerationResponse,
     CodeChunkDetailResponse,
@@ -42,6 +46,7 @@ from app.schemas.repository_file import (
 )
 from app.services import (
     chunking_service,
+    embedding_service,
     github_service,
     repository_ingestion_service,
     repository_service,
@@ -398,4 +403,70 @@ def get_chunk_detail(
         )
 
     return CodeChunkDetailResponse.model_validate(chunk_dict)
+
+
+# --- Vector Embedding Endpoints -------------------------------------------
+
+@router.post(
+    "/{repository_id}/embeddings/generate",
+    response_model=EmbeddingGenerationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate vector embeddings for repository code chunks",
+)
+def generate_repository_embeddings(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> EmbeddingGenerationResponse:
+    """
+    Generate 384-dimensional vector embeddings for all stored CodeChunk records in a repository.
+    Idempotent operation — skips unchanged chunks using SHA-256 content hashes.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    stats = embedding_service.generate_embeddings_for_repository(db, repository_id)
+    return EmbeddingGenerationResponse(
+        repository_id=repository_id,
+        total_chunks=stats["total_chunks"],
+        chunks_processed=stats["chunks_processed"],
+        embeddings_created=stats["embeddings_created"],
+        embeddings_updated=stats["embeddings_updated"],
+        embeddings_skipped=stats["embeddings_skipped"],
+    )
+
+
+@router.get(
+    "/{repository_id}/embeddings/status",
+    response_model=EmbeddingStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get embedding coverage status for a repository",
+)
+def get_embedding_status(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> EmbeddingStatusResponse:
+    """
+    Return embedding statistics for a repository (total chunks, embedded chunks, model name, vector dim).
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    stats = embedding_service.get_embedding_status_for_repository(db, repository_id)
+    return EmbeddingStatusResponse(
+        repository_id=repository_id,
+        total_chunks=stats["total_chunks"],
+        embedded_chunks=stats["embedded_chunks"],
+        remaining_chunks=stats["remaining_chunks"],
+        model_name=stats["model_name"],
+        embedding_dimension=stats["embedding_dimension"],
+    )
+
 

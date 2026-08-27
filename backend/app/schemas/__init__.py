@@ -1,5 +1,9 @@
 # The 'schemas' package contains Pydantic models for request/response validation.
 
+from app.schemas.chunk_embedding import (
+    EmbeddingGenerationResponse,
+    EmbeddingStatusResponse,
+)
 from app.schemas.code_chunk import (
     ChunkGenerationResponse,
     CodeChunkDetailResponse,
@@ -30,4 +34,6 @@ __all__ = [
     "CodeChunkDetailResponse",
     "CodeChunkListResponse",
     "ChunkGenerationResponse",
+    "EmbeddingGenerationResponse",
+    "EmbeddingStatusResponse",
 ]
