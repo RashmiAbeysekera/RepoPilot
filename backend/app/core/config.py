@@ -25,3 +25,10 @@ DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 # Defaults to the local Next.js dev server if not explicitly set.
 _default_origin = "http://localhost:3000"
 FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", _default_origin)
+
+# Google Gemini API key for RAG answer generation.
+GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
+
+# Model identifier for Google Gemini API. Defaults to gemini-2.5-flash.
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+

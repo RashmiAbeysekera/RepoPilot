@@ -38,6 +38,15 @@ def get_embedding_model():
     """
     global _model_instance
     if _model_instance is None:
+        import os
+        import torch
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        try:
+            torch.set_num_threads(1)
+        except Exception:
+            pass
         logger.info("Loading SentenceTransformer model '%s'...", EMBEDDING_MODEL_NAME)
         from sentence_transformers import SentenceTransformer
         _model_instance = SentenceTransformer(EMBEDDING_MODEL_NAME)
