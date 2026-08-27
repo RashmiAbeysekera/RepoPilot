@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import FileExplorer from "./FileExplorer";
 import FileViewer from "./FileViewer";
+import { ChunkExplorer } from "./ChunkExplorer";
 
 interface RepositoryListProps {
   refreshTrigger: number;
@@ -31,8 +32,9 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   const [analysisResult, setAnalysisResult] = useState<IngestResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // File Explorer & Viewer state
+  // File & Chunk Explorer state
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"files" | "chunks">("files");
   const [fileList, setFileList] = useState<RepositoryFile[]>([]);
   const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [selectedFileDetail, setSelectedFileDetail] = useState<RepositoryFileDetail | null>(null);
@@ -58,6 +60,7 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
 
   async function loadFiles(repoId: string) {
     setActiveRepoId(repoId);
+    setActiveTab("files");
     setIsFilesLoading(true);
     setSelectedFileDetail(null);
     setFileError(null);
@@ -69,6 +72,11 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
     } else {
       setFileError(res.error);
     }
+  }
+
+  function openChunks(repoId: string) {
+    setActiveRepoId(repoId);
+    setActiveTab("chunks");
   }
 
   async function handleDelete(repo: Repository) {
@@ -166,7 +174,15 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     className="btn-secondary"
                     style={{ marginRight: "8px" }}
                   >
-                    {activeRepoId === repo.id ? "Refreshing Files..." : "View Files"}
+                    {activeRepoId === repo.id && activeTab === "files" ? "Refreshing Files..." : "View Files"}
+                  </button>
+                  <button
+                    id={`view-chunks-${repo.id}`}
+                    onClick={() => openChunks(repo.id)}
+                    className="btn-secondary"
+                    style={{ marginRight: "8px" }}
+                  >
+                    🧩 Chunk Explorer
                   </button>
                   <a
                     href={repo.github_url}
@@ -234,31 +250,59 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                 </div>
               )}
 
-              {/* Stored File Explorer & Code Viewer split grid */}
+              {/* Active Repository Explorer Area */}
               {activeRepoId === repo.id && (
-                <div
-                  style={{
-                    marginTop: "16px",
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "16px",
-                    minHeight: "350px",
-                  }}
-                >
-                  <FileExplorer
-                    files={fileList}
-                    selectedFileId={selectedFileDetail?.id ?? null}
-                    onSelectFile={handleSelectFile}
-                    isLoading={isFilesLoading}
-                  />
-                  <FileViewer
-                    file={selectedFileDetail}
-                    isLoading={isFileLoading}
-                    error={fileError}
-                    onClose={() => setSelectedFileDetail(null)}
-                  />
+                <div style={{ marginTop: "20px" }}>
+                  {/* View Mode Tabs */}
+                  <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                    <button
+                      onClick={() => {
+                        setActiveTab("files");
+                        if (fileList.length === 0) loadFiles(repo.id);
+                      }}
+                      className={activeTab === "files" ? "btn-primary" : "btn-secondary"}
+                      style={{ fontSize: "0.8rem", padding: "6px 12px" }}
+                    >
+                      📁 Repository Files
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("chunks")}
+                      className={activeTab === "chunks" ? "btn-primary" : "btn-secondary"}
+                      style={{ fontSize: "0.8rem", padding: "6px 12px" }}
+                    >
+                      🧩 Code Chunks
+                    </button>
+                  </div>
+
+                  {/* Tab Content */}
+                  {activeTab === "files" ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: "16px",
+                        minHeight: "350px",
+                      }}
+                    >
+                      <FileExplorer
+                        files={fileList}
+                        selectedFileId={selectedFileDetail?.id ?? null}
+                        onSelectFile={handleSelectFile}
+                        isLoading={isFilesLoading}
+                      />
+                      <FileViewer
+                        file={selectedFileDetail}
+                        isLoading={isFileLoading}
+                        error={fileError}
+                        onClose={() => setSelectedFileDetail(null)}
+                      />
+                    </div>
+                  ) : (
+                    <ChunkExplorer repositoryId={repo.id} repositoryName={repo.full_name} />
+                  )}
                 </div>
               )}
+
             </li>
           ))}
         </ul>

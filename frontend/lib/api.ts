@@ -290,3 +290,92 @@ export async function getRepositoryFile(
     return { ok: false, error: "Could not reach backend when fetching file detail." };
   }
 }
+
+// -------------------------------------------------------------------------
+// Code Chunking types and functions
+// -------------------------------------------------------------------------
+
+export interface CodeChunkMetadata {
+  id: string;
+  repository_file_id: string;
+  file_path: string;
+  file_name: string;
+  chunk_index: number;
+  start_line: number;
+  end_line: number;
+  created_at: string;
+}
+
+export interface CodeChunkDetail extends CodeChunkMetadata {
+  content: string;
+}
+
+export interface CodeChunkListResponse {
+  repository_id: string;
+  total_chunks: number;
+  chunks: CodeChunkMetadata[];
+}
+
+export interface ChunkGenerationResponse {
+  repository_id: string;
+  files_processed: number;
+  chunks_created: number;
+}
+
+/** POST /api/repositories/{id}/chunks/generate — generate chunks for repository files. */
+export async function generateRepositoryChunks(
+  repositoryId: string
+): Promise<ApiResult<ChunkGenerationResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/chunks/generate`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Chunk generation failed (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as ChunkGenerationResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend during chunk generation." };
+  }
+}
+
+/** GET /api/repositories/{id}/chunks — list chunk metadata for repository. */
+export async function listRepositoryChunks(
+  repositoryId: string
+): Promise<ApiResult<CodeChunkListResponse>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories/${repositoryId}/chunks`);
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Failed to list chunks (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as CodeChunkListResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend when listing chunks." };
+  }
+}
+
+/** GET /api/repositories/{id}/chunks/{chunkId} — get single chunk full detail. */
+export async function getChunkDetail(
+  repositoryId: string,
+  chunkId: string
+): Promise<ApiResult<CodeChunkDetail>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/chunks/${chunkId}`
+    );
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Failed to fetch chunk (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as CodeChunkDetail;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend when fetching chunk detail." };
+  }
+}
+
