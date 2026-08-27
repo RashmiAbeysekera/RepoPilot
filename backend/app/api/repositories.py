@@ -23,6 +23,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.schemas.code_chunk import (
+    ChunkGenerationResponse,
+    CodeChunkDetailResponse,
+    CodeChunkListResponse,
+    CodeChunkMetadataResponse,
+)
 from app.schemas.repository import (
     RepositoryCreate,
     RepositoryImportRequest,
@@ -34,7 +40,12 @@ from app.schemas.repository_file import (
     RepositoryFileListResponse,
     RepositoryFileResponse,
 )
-from app.services import github_service, repository_ingestion_service, repository_service
+from app.services import (
+    chunking_service,
+    github_service,
+    repository_ingestion_service,
+    repository_service,
+)
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
@@ -259,3 +270,132 @@ def delete_repository(
             detail=f"Repository '{repository_id}' not found.",
         )
     repository_service.delete_repository(db, repository)
+
+
+# --- Code Chunking Endpoints ----------------------------------------------
+
+@router.post(
+    "/{repository_id}/chunks/generate",
+    response_model=ChunkGenerationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate line-based code chunks for all repository files",
+)
+def generate_repository_chunks(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> ChunkGenerationResponse:
+    """
+    Generate code chunks for all stored files in a repository.
+    Idempotent operation — replaces previous chunks for the repository.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    stats = chunking_service.generate_chunks_for_repository(db, repository_id)
+    return ChunkGenerationResponse(
+        repository_id=repository_id,
+        files_processed=stats["files_processed"],
+        chunks_created=stats["chunks_created"],
+    )
+
+
+@router.post(
+    "/{repository_id}/files/{file_id}/chunks/generate",
+    response_model=ChunkGenerationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate line-based code chunks for a single file",
+)
+def generate_file_chunks(
+    repository_id: uuid.UUID,
+    file_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> ChunkGenerationResponse:
+    """
+    Generate code chunks for a single stored file.
+    Verifies file ownership by repository_id.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    file_record = repository_service.get_repository_file_by_id(db, repository_id, file_id)
+    if file_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File '{file_id}' not found in repository '{repository_id}'.",
+        )
+
+    created_chunks = chunking_service.generate_chunks_for_file(db, file_record)
+    return ChunkGenerationResponse(
+        repository_id=repository_id,
+        files_processed=1,
+        chunks_created=len(created_chunks),
+    )
+
+
+@router.get(
+    "/{repository_id}/chunks",
+    response_model=CodeChunkListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List all chunks for a repository",
+)
+def list_repository_chunks(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> CodeChunkListResponse:
+    """
+    Return metadata list of all code chunks generated for the given repository.
+    Excludes full chunk text content for performance.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    chunks = chunking_service.list_chunks_for_repository(db, repository_id)
+    return CodeChunkListResponse(
+        repository_id=repository_id,
+        total_chunks=len(chunks),
+        chunks=[CodeChunkMetadataResponse.model_validate(c) for c in chunks],
+    )
+
+
+@router.get(
+    "/{repository_id}/chunks/{chunk_id}",
+    response_model=CodeChunkDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a single chunk with full content",
+)
+def get_chunk_detail(
+    repository_id: uuid.UUID,
+    chunk_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> CodeChunkDetailResponse:
+    """
+    Return full content and metadata for a single code chunk, asserting ownership by repository_id.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    chunk_dict = chunking_service.get_chunk_by_id(db, repository_id, chunk_id)
+    if chunk_dict is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Chunk '{chunk_id}' not found in repository '{repository_id}'.",
+        )
+
+    return CodeChunkDetailResponse.model_validate(chunk_dict)
+
