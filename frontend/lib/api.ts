@@ -499,5 +499,60 @@ export async function searchRepository(
   }
 }
 
+// -------------------------------------------------------------------------
+// RAG Question Answering Types and Functions
+// -------------------------------------------------------------------------
+
+export interface RAGSourceReference {
+  chunk_id: string;
+  repository_file_id: string;
+  file_path: string;
+  chunk_index: number;
+  start_line: number;
+  end_line: number;
+  score: number;
+  content: string;
+}
+
+export interface RAGAnswerResponse {
+  repository_id: string;
+  query: string;
+  answer: string;
+  sources: RAGSourceReference[];
+  model_name: string;
+}
+
+/** POST /api/repositories/{id}/ask — ask a question about an indexed repository via RAG pipeline. */
+export async function askRepositoryQuestion(
+  repositoryId: string,
+  query: string,
+  topK: number = 5
+): Promise<ApiResult<RAGAnswerResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/ask`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, top_k: topK }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return {
+        ok: false,
+        error: errorBody.detail ?? `RAG question request failed (HTTP ${response.status})`,
+      };
+    }
+
+    const data = (await response.json()) as RAGAnswerResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend during RAG question request." };
+  }
+}
+
+
 
 

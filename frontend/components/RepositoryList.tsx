@@ -17,6 +17,7 @@ import FileViewer from "./FileViewer";
 import { ChunkExplorer } from "./ChunkExplorer";
 import { EmbeddingManager } from "./EmbeddingManager";
 import { SemanticSearch } from "./SemanticSearch";
+import { AskRepoPilot } from "./AskRepoPilot";
 
 interface RepositoryListProps {
   refreshTrigger: number;
@@ -34,9 +35,9 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   const [analysisResult, setAnalysisResult] = useState<IngestResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // File, Chunk, Embedding, and Search Explorer state
+  // File, Chunk, Embedding, Search, and RAG Explorer state
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"files" | "chunks" | "embeddings" | "search">("files");
+  const [activeTab, setActiveTab] = useState<"files" | "chunks" | "embeddings" | "search" | "rag">("rag");
   const [fileList, setFileList] = useState<RepositoryFile[]>([]);
   const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [selectedFileDetail, setSelectedFileDetail] = useState<RepositoryFileDetail | null>(null);
@@ -89,6 +90,11 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   function openSearch(repoId: string) {
     setActiveRepoId(repoId);
     setActiveTab("search");
+  }
+
+  function openAsk(repoId: string) {
+    setActiveRepoId(repoId);
+    setActiveTab("rag");
   }
 
   async function handleDelete(repo: Repository) {
@@ -229,6 +235,17 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                   🔍 Semantic Search
                 </button>
                 <button
+                  id={`view-ask-${repo.id}`}
+                  onClick={() => openAsk(repo.id)}
+                  className="btn-primary"
+                  style={{
+                    background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+                    borderColor: "rgba(56, 189, 248, 0.4)",
+                  }}
+                >
+                  🤖 Ask RepoPilot
+                </button>
+                <button
                   id={`delete-repo-${repo.id}`}
                   onClick={() => handleDelete(repo)}
                   disabled={deletingId === repo.id}
@@ -320,6 +337,13 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     >
                       🔍 Semantic Search
                     </button>
+                    <button
+                      onClick={() => setActiveTab("rag")}
+                      className={activeTab === "rag" ? "btn-primary" : "btn-secondary"}
+                      style={{ fontSize: "0.8rem", padding: "6px 12px" }}
+                    >
+                      🤖 Ask RepoPilot
+                    </button>
                   </div>
 
                   {/* Tab Content */}
@@ -349,8 +373,10 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     <ChunkExplorer repositoryId={repo.id} repositoryName={repo.full_name} />
                   ) : activeTab === "embeddings" ? (
                     <EmbeddingManager repositoryId={repo.id} repositoryName={repo.full_name} />
-                  ) : (
+                  ) : activeTab === "search" ? (
                     <SemanticSearch repositoryId={repo.id} repositoryName={repo.full_name} />
+                  ) : (
+                    <AskRepoPilot repositoryId={repo.id} repositoryName={repo.full_name} />
                   )}
                 </div>
               )}
