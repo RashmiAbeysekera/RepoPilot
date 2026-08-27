@@ -440,4 +440,64 @@ export async function getRepositoryEmbeddingStatus(
   }
 }
 
+// -------------------------------------------------------------------------
+// Semantic Search types and functions
+// -------------------------------------------------------------------------
+
+export interface SearchResultItem {
+  chunk_id: string;
+  repository_file_id: string;
+  file_path: string;
+  chunk_index: number;
+  start_line: number;
+  end_line: number;
+  content: string;
+  score: number;
+}
+
+export interface SearchResponse {
+  repository_id: string;
+  query: string;
+  top_k: number;
+  total_results: number;
+  results: SearchResultItem[];
+}
+
+export interface SearchRequest {
+  query: string;
+  top_k?: number;
+}
+
+/** POST /api/repositories/{id}/search — perform semantic search over repository code chunks. */
+export async function searchRepository(
+  repositoryId: string,
+  query: string,
+  topK: number = 5
+): Promise<ApiResult<SearchResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/search`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, top_k: topK }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return {
+        ok: false,
+        error: errorBody.detail ?? `Semantic search failed (HTTP ${response.status})`,
+      };
+    }
+
+    const data = (await response.json()) as SearchResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend during semantic search." };
+  }
+}
+
+
 
