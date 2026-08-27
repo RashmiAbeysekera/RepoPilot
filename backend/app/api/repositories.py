@@ -44,11 +44,13 @@ from app.schemas.repository_file import (
     RepositoryFileListResponse,
     RepositoryFileResponse,
 )
+from app.schemas.rag import RAGAnswerResponse, RAGQuestionRequest
 from app.schemas.search import SearchRequest, SearchResponse
 from app.services import (
     chunking_service,
     embedding_service,
     github_service,
+    rag_service,
     repository_ingestion_service,
     repository_service,
     search_service,
@@ -510,6 +512,48 @@ def search_repository(
         ) from error
 
     return SearchResponse.model_validate(search_result)
+
+
+# --- RAG Question Answering Endpoint -------------------------------------
+
+@router.post(
+    "/{repository_id}/ask",
+    response_model=RAGAnswerResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ask a question about an indexed repository using RAG and Gemini AI",
+)
+def ask_repository_question(
+    repository_id: uuid.UUID,
+    data: RAGQuestionRequest,
+    db: Session = Depends(get_db),
+) -> RAGAnswerResponse:
+    """
+    Retrieves top-K relevant code chunks for the given natural language query,
+    builds grounded context, and invokes Gemini AI to generate a developer answer
+    with exact source file references.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    try:
+        rag_result = rag_service.answer_repository_question(
+            db=db,
+            repository_id=repository_id,
+            query=data.query,
+            top_k=data.top_k,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    return RAGAnswerResponse.model_validate(rag_result)
+
 
 
 
