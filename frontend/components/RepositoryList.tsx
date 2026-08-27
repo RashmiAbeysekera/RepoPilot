@@ -16,6 +16,7 @@ import FileExplorer from "./FileExplorer";
 import FileViewer from "./FileViewer";
 import { ChunkExplorer } from "./ChunkExplorer";
 import { EmbeddingManager } from "./EmbeddingManager";
+import { SemanticSearch } from "./SemanticSearch";
 
 interface RepositoryListProps {
   refreshTrigger: number;
@@ -33,9 +34,9 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   const [analysisResult, setAnalysisResult] = useState<IngestResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // File, Chunk, and Embedding Explorer state
+  // File, Chunk, Embedding, and Search Explorer state
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"files" | "chunks" | "embeddings">("files");
+  const [activeTab, setActiveTab] = useState<"files" | "chunks" | "embeddings" | "search">("files");
   const [fileList, setFileList] = useState<RepositoryFile[]>([]);
   const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [selectedFileDetail, setSelectedFileDetail] = useState<RepositoryFileDetail | null>(null);
@@ -83,6 +84,11 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   function openEmbeddings(repoId: string) {
     setActiveRepoId(repoId);
     setActiveTab("embeddings");
+  }
+
+  function openSearch(repoId: string) {
+    setActiveRepoId(repoId);
+    setActiveTab("search");
   }
 
   async function handleDelete(repo: Repository) {
@@ -155,68 +161,82 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
       {repositories.length > 0 && (
         <ul className="repo-list">
           {repositories.map((repo) => (
-            <li key={repo.id} className="repo-item" style={{ flexDirection: "column", alignItems: "stretch" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <li key={repo.id} className="repo-item" style={{ flexDirection: "column", alignItems: "stretch", padding: "18px 0" }}>
+              {/* Top Repository Info Bar */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", marginBottom: "14px" }}>
                 <div className="repo-info">
-                  <p className="repo-name">{repo.name}</p>
-                  <p className="repo-full-name">{repo.full_name}</p>
-                  {repo.description && <p className="repo-description">{repo.description}</p>}
-                  <p className="repo-branch">Branch: <code>{repo.default_branch}</code></p>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>{repo.name}</h3>
+                    <span style={{ fontSize: "0.78rem", background: "rgba(255, 255, 255, 0.08)", color: "#cbd5e1", padding: "2px 8px", borderRadius: "4px", fontWeight: 500 }}>
+                      {repo.full_name}
+                    </span>
+                    <span style={{ fontSize: "0.75rem", background: "rgba(59, 130, 246, 0.15)", color: "#93c5fd", padding: "2px 8px", borderRadius: "4px" }}>
+                      Branch: <code>{repo.default_branch}</code>
+                    </span>
+                  </div>
+                  {repo.description && <p className="repo-description" style={{ marginTop: "6px" }}>{repo.description}</p>}
                 </div>
 
-                <div className="repo-actions">
-                  <button
-                    id={`analyze-repo-${repo.id}`}
-                    onClick={() => handleAnalyze(repo)}
-                    disabled={analyzingId === repo.id}
-                    className="btn-primary"
-                    style={{ marginRight: "8px" }}
-                  >
-                    {analyzingId === repo.id ? "Ingesting..." : "Ingest Repository"}
-                  </button>
-                  <button
-                    id={`view-files-${repo.id}`}
-                    onClick={() => loadFiles(repo.id)}
-                    className="btn-secondary"
-                    style={{ marginRight: "8px" }}
-                  >
-                    {activeRepoId === repo.id && activeTab === "files" ? "Refreshing Files..." : "View Files"}
-                  </button>
-                  <button
-                    id={`view-chunks-${repo.id}`}
-                    onClick={() => openChunks(repo.id)}
-                    className="btn-secondary"
-                    style={{ marginRight: "8px" }}
-                  >
-                    🧩 Chunk Explorer
-                  </button>
-                  <button
-                    id={`view-embeddings-${repo.id}`}
-                    onClick={() => openEmbeddings(repo.id)}
-                    className="btn-secondary"
-                    style={{ marginRight: "8px" }}
-                  >
-                    ⚡ Vector Embeddings
-                  </button>
-                  <a
-                    href={repo.github_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-secondary"
-                    id={`open-repo-${repo.id}`}
-                    style={{ marginRight: "8px" }}
-                  >
-                    GitHub ↗
-                  </a>
-                  <button
-                    id={`delete-repo-${repo.id}`}
-                    onClick={() => handleDelete(repo)}
-                    disabled={deletingId === repo.id}
-                    className="btn-danger"
-                  >
-                    {deletingId === repo.id ? "Deleting..." : "Delete"}
-                  </button>
-                </div>
+                <a
+                  href={repo.github_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                  id={`open-repo-${repo.id}`}
+                  style={{ fontSize: "0.8rem", padding: "4px 10px" }}
+                >
+                  GitHub ↗
+                </a>
+              </div>
+
+              {/* Action Toolbar Row — wraps naturally without overflowing */}
+              <div className="repo-actions" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                <button
+                  id={`analyze-repo-${repo.id}`}
+                  onClick={() => handleAnalyze(repo)}
+                  disabled={analyzingId === repo.id}
+                  className="btn-primary"
+                  style={{ width: "auto", padding: "6px 14px", fontSize: "0.8125rem", marginTop: 0 }}
+                >
+                  {analyzingId === repo.id ? "Ingesting..." : "Ingest Repository"}
+                </button>
+                <button
+                  id={`view-files-${repo.id}`}
+                  onClick={() => loadFiles(repo.id)}
+                  className="btn-secondary"
+                >
+                  {activeRepoId === repo.id && activeTab === "files" ? "Refreshing Files..." : "📁 View Files"}
+                </button>
+                <button
+                  id={`view-chunks-${repo.id}`}
+                  onClick={() => openChunks(repo.id)}
+                  className="btn-secondary"
+                >
+                  🧩 Chunk Explorer
+                </button>
+                <button
+                  id={`view-embeddings-${repo.id}`}
+                  onClick={() => openEmbeddings(repo.id)}
+                  className="btn-secondary"
+                >
+                  ⚡ Vector Embeddings
+                </button>
+                <button
+                  id={`view-search-${repo.id}`}
+                  onClick={() => openSearch(repo.id)}
+                  className="btn-secondary"
+                >
+                  🔍 Semantic Search
+                </button>
+                <button
+                  id={`delete-repo-${repo.id}`}
+                  onClick={() => handleDelete(repo)}
+                  disabled={deletingId === repo.id}
+                  className="btn-danger"
+                  style={{ marginLeft: "auto" }}
+                >
+                  {deletingId === repo.id ? "Deleting..." : "Delete"}
+                </button>
               </div>
 
               {/* Ingestion Analysis Summary Card */}
@@ -293,6 +313,13 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     >
                       ⚡ Vector Embeddings
                     </button>
+                    <button
+                      onClick={() => setActiveTab("search")}
+                      className={activeTab === "search" ? "btn-primary" : "btn-secondary"}
+                      style={{ fontSize: "0.8rem", padding: "6px 12px" }}
+                    >
+                      🔍 Semantic Search
+                    </button>
                   </div>
 
                   {/* Tab Content */}
@@ -300,7 +327,7 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
                         gap: "16px",
                         minHeight: "350px",
                       }}
@@ -320,8 +347,10 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     </div>
                   ) : activeTab === "chunks" ? (
                     <ChunkExplorer repositoryId={repo.id} repositoryName={repo.full_name} />
-                  ) : (
+                  ) : activeTab === "embeddings" ? (
                     <EmbeddingManager repositoryId={repo.id} repositoryName={repo.full_name} />
+                  ) : (
+                    <SemanticSearch repositoryId={repo.id} repositoryName={repo.full_name} />
                   )}
                 </div>
               )}

@@ -6,16 +6,7 @@ import RepositoryForm from "@/components/RepositoryForm";
 import RepositoryList from "@/components/RepositoryList";
 
 /**
- * Root page — holds the system health check and repository management UI.
- *
- * We use "use client" here because we need state (refreshTrigger) to
- * coordinate the form and list. The page itself is simple: it wires
- * the two components together and provides the refresh signal.
- *
- * refreshTrigger: a counter that increments each time a repository is
- * added. RepositoryList watches this value and reloads when it changes.
- * This is a simple, explicit way to coordinate parent → child updates
- * without needing a global state library.
+ * Root page — holds system health check, repository import, and repository management UI.
  */
 export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -31,15 +22,15 @@ export default function Home() {
         <p className="page-subtitle">AI-powered software engineering assistant</p>
       </header>
 
-      <div className="content-grid">
-        {/* System health — shows backend and database status */}
-        <section aria-label="System status">
+      <div className="dashboard-container">
+        {/* Top Control Panel Grid — Health & Import side-by-side */}
+        <section aria-label="System control panel" className="top-control-grid">
           <SystemStatusCard />
+          <RepositoryForm onRepositoryAdded={handleRepositoryAdded} />
         </section>
 
-        {/* Repository management */}
-        <section aria-label="Repository management" className="repo-section">
-          <RepositoryForm onRepositoryAdded={handleRepositoryAdded} />
+        {/* Main Repository Explorer Workspace — Full width */}
+        <section aria-label="Repository management" className="main-workspace-section">
           <RepositoryList refreshTrigger={refreshTrigger} />
         </section>
       </div>

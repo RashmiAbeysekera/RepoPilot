@@ -56,22 +56,23 @@ a {
 
 .page-container {
   min-height: 100vh;
-  max-width: 1100px;
+  max-width: 1320px;
+  width: 100%;
   margin: 0 auto;
-  padding: 48px 24px 80px;
+  padding: 40px 24px 80px;
 }
 
 .page-header {
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 36px;
 }
 
 .page-title {
-  font-size: 2.25rem;
-  font-weight: 700;
+  font-size: 2.5rem;
+  font-weight: 800;
   letter-spacing: -0.02em;
   margin: 0;
-  background: linear-gradient(135deg, #e8eaf6 0%, #6c63ff 100%);
+  background: linear-gradient(135deg, #f8fafc 0%, #818cf8 50%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -80,27 +81,32 @@ a {
 .page-subtitle {
   margin: 8px 0 0;
   color: var(--text-secondary);
-  font-size: 1rem;
+  font-size: 1.05rem;
 }
 
-/* Two-column layout on wider screens */
-.content-grid {
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+}
+
+.top-control-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 24px;
+  width: 100%;
+  align-items: stretch;
 }
 
-@media (min-width: 768px) {
-  .content-grid {
-    grid-template-columns: 360px 1fr;
-    align-items: start;
+@media (max-width: 860px) {
+  .top-control-grid {
+    grid-template-columns: 1fr;
   }
 }
 
-.repo-section {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.main-workspace-section {
+  width: 100%;
 }
 
 /* =========================================================
@@ -356,8 +362,8 @@ a {
 .repo-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  flex-shrink: 0;
 }
 
 .list-empty-message {
