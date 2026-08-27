@@ -7,11 +7,17 @@ Represents a single file discovered and persisted during repository ingestion.
 import uuid
 from datetime import datetime, timezone
 
+from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.code_chunk import CodeChunk
+    from app.models.repository import Repository
+
 
 
 class RepositoryFile(Base):
@@ -69,6 +75,13 @@ class RepositoryFile(Base):
 
     # Relationship back to Repository
     repository: Mapped["Repository"] = relationship("Repository", back_populates="files")
+
+    # Relationship to CodeChunk (one-to-many)
+    chunks: Mapped[list["CodeChunk"]] = relationship(
+        "CodeChunk",
+        back_populates="repository_file",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("repository_id", "path", name="uq_repository_files_repository_id_path"),
