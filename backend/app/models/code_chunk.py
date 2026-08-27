@@ -7,11 +7,16 @@ Represents a text chunk created from a RepositoryFile.
 import uuid
 from datetime import datetime, timezone
 
+from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.chunk_embedding import ChunkEmbedding
+    from app.models.repository_file import RepositoryFile
 
 
 class CodeChunk(Base):
@@ -63,6 +68,14 @@ class CodeChunk(Base):
     repository_file: Mapped["RepositoryFile"] = relationship(
         "RepositoryFile",
         back_populates="chunks",
+    )
+
+    # Relationship to ChunkEmbedding (one-to-one)
+    embedding: Mapped["ChunkEmbedding"] = relationship(
+        "ChunkEmbedding",
+        back_populates="code_chunk",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
