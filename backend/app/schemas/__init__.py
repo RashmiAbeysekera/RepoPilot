@@ -22,6 +22,12 @@ from app.schemas.repository_file import (
     RepositoryFileResponse,
 )
 
+from app.schemas.search import (
+    SearchRequest,
+    SearchResultItem,
+    SearchResponse,
+)
+
 __all__ = [
     "RepositoryCreate",
     "RepositoryImportRequest",
@@ -36,4 +42,7 @@ __all__ = [
     "ChunkGenerationResponse",
     "EmbeddingGenerationResponse",
     "EmbeddingStatusResponse",
+    "SearchRequest",
+    "SearchResultItem",
+    "SearchResponse",
 ]

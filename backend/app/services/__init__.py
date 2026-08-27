@@ -8,6 +8,7 @@ from app.services import (
     github_service,
     repository_ingestion_service,
     repository_service,
+    search_service,
 )
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "repository_ingestion_service",
     "chunking_service",
     "embedding_service",
+    "search_service",
 ]
 
 
