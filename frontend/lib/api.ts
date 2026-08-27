@@ -134,6 +134,10 @@ export interface IngestResult {
   repository: string;
   default_branch: string;
   files_discovered: number;
+  files_stored: number;
+  files_updated: number;
+  files_skipped: number;
+  skip_reasons: Record<string, number>;
   source_files: number;
   ignored_files: number;
   file_paths: string[];
@@ -221,5 +225,68 @@ export async function deleteRepository(id: string): Promise<ApiResult<null>> {
     };
   } catch {
     return { ok: false, error: "Could not reach the backend. Is it running?" };
+  }
+}
+
+// -------------------------------------------------------------------------
+// Repository Files types and functions
+// -------------------------------------------------------------------------
+
+export interface RepositoryFile {
+  id: string;
+  repository_id: string;
+  path: string;
+  name: string;
+  extension: string;
+  size: number;
+  file_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RepositoryFileDetail extends RepositoryFile {
+  content: string | null;
+}
+
+export interface RepositoryFileList {
+  repository_id: string;
+  total_files: number;
+  files: RepositoryFile[];
+}
+
+/** GET /api/repositories/{id}/files — list all stored files for a repository. */
+export async function listRepositoryFiles(
+  repositoryId: string
+): Promise<ApiResult<RepositoryFileList>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/repositories/${repositoryId}/files`);
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Failed to list files (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as RepositoryFileList;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend when listing repository files." };
+  }
+}
+
+/** GET /api/repositories/{id}/files/{fileId} — retrieve single file with content. */
+export async function getRepositoryFile(
+  repositoryId: string,
+  fileId: string
+): Promise<ApiResult<RepositoryFileDetail>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/files/${fileId}`
+    );
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Failed to fetch file (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as RepositoryFileDetail;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend when fetching file detail." };
   }
 }
