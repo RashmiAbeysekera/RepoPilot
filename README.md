@@ -8,56 +8,62 @@ This is an incremental learning project — each day adds a new layer of full-st
 
 ## Project Status
 
-**Day 3 — GitHub Integration & Ingestion Foundation**
+**Day 4 — Persistent Repository File Storage and Ingestion**
 
-The architecture communicates directly with the public **GitHub REST API**:
+The architecture persists discovered GitHub repository files directly into PostgreSQL:
 
 ```
-Next.js 16 UI
-    ↓  HTTP / REST
-FastAPI Backend
-    ├──► GitHub REST API (httpx client — metadata & file discovery)
-    ↓  SQLAlchemy ORM
-PostgreSQL / Supabase
+GitHub Public Repository
+       │
+       ▼ GitHub REST API
+FastAPI Ingestion Service
+       │
+       ▼ SQL Alchemy ORM & Idempotent Upsert
+PostgreSQL / Supabase (repository_files table)
+       │
+       ▼ REST API
+Next.js 16 UI (File Explorer & Code Viewer)
 ```
 
-Users can import public GitHub repositories by URL, fetch live repository metadata, inspect repository file trees, and analyze source code structure.
+Users can import public GitHub repositories, ingest their source files into PostgreSQL with database-level uniqueness constraints, browse stored repository file trees in an interactive UI, and view source code/documentation contents directly in the web app.
+
+> [!NOTE]
+> **Important Disclaimer**: Day 4 does **NOT** implement RAG, vector embeddings, `pgvector`, code chunking, or Gemini AI endpoints. Those are planned for future phases.
 
 ---
 
-## Technology Explained
+## Database Architecture (Day 4)
 
-### Why GitHub REST API Integration?
-RepoPilot needs real GitHub repository metadata (owner, repository name, description, default branch) and file tree contents so it can inspect and digest source code. Working directly with GitHub's REST API allows public repositories to be imported seamlessly without needing manual input.
+### `Repository` → `RepositoryFile` One-to-Many Relationship
 
-### PostgreSQL & Supabase
-PostgreSQL stores structured repository metadata. Supabase hosts the PostgreSQL database in the cloud.
-
-### SQLAlchemy & Alembic
-SQLAlchemy maps Python objects to PostgreSQL tables cleanly. Alembic manages database schema versions and migrations.
-
----
-
-## Current Architecture
+A single `Repository` record can own many `RepositoryFile` records.
 
 ```
-frontend/          Next.js 16 + React 19 + TypeScript
-    ↓
-backend/
-  app/
-    core/          Config + SQLAlchemy database layer
-    models/        SQLAlchemy ORM models (repositories table)
-    schemas/       Pydantic request/response validation
-    services/
-      github_service.py               Communicates with GitHub REST API
-      repository_service.py           CRUD operations & GitHub import
-      repository_ingestion_service.py File discovery, filtering & metrics
-    api/           FastAPI route handlers
-  alembic/         Database migration scripts
-  tests/           33 pytest unit tests
-    ↓
-Supabase PostgreSQL
+repositories
+---------------------------------
+id (UUID)
+name
+full_name
+github_url
+default_branch
+
+repository_files
+---------------------------------
+id (UUID)
+repository_id (UUID, Foreign Key -> repositories.id, ON DELETE CASCADE)
+path (e.g., "src/components/Login.jsx")
+name (e.g., "Login.jsx")
+extension (e.g., ".jsx")
+size (bytes)
+file_type ("source", "documentation", "configuration")
+content (Text)
+created_at (Timestamp)
+updated_at (Timestamp)
 ```
+
+### Database Uniqueness Constraint
+
+To enforce database integrity, a unique constraint on `(repository_id, path)` prevents duplicate file records for the same repository. Re-running repository ingestion executes an idempotent upsert strategy (inserting new files, updating modified files, and deleting stale files transactionally).
 
 ---
 
@@ -65,37 +71,41 @@ Supabase PostgreSQL
 
 - `GET  /api/health` — Backend process and PostgreSQL database health check
 - `POST /api/repositories/import` — Import a public GitHub repository by URL
-- `POST /api/repositories/{id}/ingest` — Inspect file tree & count source vs ignored files
+- `POST /api/repositories/{id}/ingest` — Ingest repository files and persist in PostgreSQL
+- `GET  /api/repositories/{repository_id}/files` — List stored files for a repository (excluding large content body)
+- `GET  /api/repositories/{repository_id}/files/{file_id}` — Retrieve a single stored file with full text content (with cross-repository access protection)
 - `POST /api/repositories` — Add a repository manually
 - `GET  /api/repositories` — List all saved repositories
 - `GET  /api/repositories/{id}` — Get a repository by ID
-- `DELETE /api/repositories/{id}` — Delete a repository
+- `DELETE /api/repositories/{id}` — Delete a repository (cascade deletes all stored files)
 
 ---
 
-## File Ingestion Rules (Day 3)
+## File Ingestion & Safety Thresholds
 
-### Supported Source Extensions
-- Python (`.py`), JavaScript/TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`)
-- Systems & Web: `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.html`, `.css`
-- Config & Data: `.json`, `.yaml`, `.yml`, `.md`, `.sql`, `.xml`, `.sh`
+### Supported Extensions
+- Source: `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.html`, `.css`, `.sh`, `.sql`
+- Documentation: `.md`, `.txt`, `.rst`
+- Configuration: `.json`, `.yaml`, `.yml`, `.xml`, `.toml`
 
 ### Ignored Directories
-- `.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.next`, `coverage`, `vendor`, `.venv`
+- `.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.next`, `coverage`, `vendor`, `.venv`, `.idea`, `.vscode`
 
-### Ignored Extensions
-- Images/Media: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.mp3`
-- Documents/Archives: `.pdf`, `.zip`, `.exe`, `.ico`, `.woff`, `.ttf`, `.tar`
+### Ignored Extensions & Safety Limits
+- Media & Binaries: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.mp3`, `.pdf`, `.zip`, `.exe`, `.ico`, `.woff`, `.ttf`, `.tar`
+- Max File Size: `500 KB` per file limit (oversized files are safely skipped without failing the ingestion run)
+- Repository Cap: `200` file limit per repository ingestion run
 
 ---
 
 ## Future Features (Planned for Later Days)
 
 The following features are **not yet implemented**:
-- GitHub OAuth login & user accounts
+- Code chunking & sliding window parsing
 - Embeddings and vector search (`pgvector`)
-- Chunking & RAG over source code
-- Gemini API for AI-powered codebase Q&A
+- RAG (Retrieval-Augmented Generation) context assembly
+- Gemini API integration for Q&A
+- GitHub OAuth login & user management
 - Docker / Production deployment
 
 ---
@@ -140,7 +150,7 @@ Runs at [http://localhost:3000](http://localhost:3000).
 
 ## Running Tests
 
-Run the complete 33-test suite:
+Run the complete 39-test suite:
 
 ```bash
 # From project root with venv active:
