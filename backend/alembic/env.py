@@ -33,9 +33,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core.config import DATABASE_URL  # noqa: E402
 
 # Import Base — Alembic uses Base.metadata to know which tables exist in
-# our models. We also import the model itself so SQLAlchemy registers it.
+# our models. We also import all models so SQLAlchemy registers them.
 from app.core.database import Base  # noqa: E402
-import app.models.repository  # noqa: F401, E402 — registers Repository with Base.metadata
+import app.models  # noqa: F401, E402 — registers all models with Base.metadata
 
 # Alembic Config object — provides access to values in alembic.ini
 config = context.config

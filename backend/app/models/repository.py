@@ -13,11 +13,15 @@ the database schema.
 import uuid
 from datetime import datetime, timezone
 
+from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.repository_file import RepositoryFile
 
 
 class Repository(Base):
@@ -73,6 +77,13 @@ class Repository(Base):
         server_default=func.now(),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationship to RepositoryFile (one-to-many)
+    files: Mapped[list["RepositoryFile"]] = relationship(
+        "RepositoryFile",
+        back_populates="repository",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
