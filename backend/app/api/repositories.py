@@ -29,6 +29,11 @@ from app.schemas.repository import (
     RepositoryIngestResponse,
     RepositoryResponse,
 )
+from app.schemas.repository_file import (
+    RepositoryFileDetailResponse,
+    RepositoryFileListResponse,
+    RepositoryFileResponse,
+)
 from app.services import github_service, repository_ingestion_service, repository_service
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
@@ -63,15 +68,15 @@ def import_repository(
     "/{repository_id}/ingest",
     response_model=RepositoryIngestResponse,
     status_code=status.HTTP_200_OK,
-    summary="Ingest and analyze repository file tree",
+    summary="Ingest and persist repository file tree",
 )
 def ingest_repository(
     repository_id: uuid.UUID,
     db: Session = Depends(get_db),
 ) -> RepositoryIngestResponse:
     """
-    Discover, filter, and inspect source files in a saved repository via GitHub REST API.
-    Returns calculated discovery metrics (files_discovered, source_files, ignored_files).
+    Discover, filter, and inspect source files in a saved repository via GitHub REST API,
+    persisting RepositoryFile records into PostgreSQL.
     """
     repository = repository_service.get_repository_by_id(db, repository_id)
     if repository is None:
@@ -81,8 +86,7 @@ def ingest_repository(
         )
 
     try:
-        owner, repo = github_service.parse_github_url(repository.github_url)
-        summary = repository_ingestion_service.ingest_repository_contents(owner, repo)
+        summary = repository_ingestion_service.ingest_and_persist_repository(db, repository)
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,10 +98,73 @@ def ingest_repository(
         repository=summary["repository"],
         default_branch=repository.default_branch,
         files_discovered=summary["files_discovered"],
+        files_stored=summary["files_stored"],
+        files_updated=summary["files_updated"],
+        files_skipped=summary["files_skipped"],
+        skip_reasons=summary["skip_reasons"],
         source_files=summary["source_files"],
         ignored_files=summary["ignored_files"],
         file_paths=summary["file_paths"],
     )
+
+
+@router.get(
+    "/{repository_id}/files",
+    response_model=RepositoryFileListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List stored files for a repository",
+)
+def list_repository_files(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> RepositoryFileListResponse:
+    """
+    Return all stored RepositoryFile records for the given repository.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    files = repository_service.list_repository_files(db, repository_id)
+    return RepositoryFileListResponse(
+        repository_id=repository_id,
+        total_files=len(files),
+        files=[RepositoryFileResponse.model_validate(f) for f in files],
+    )
+
+
+@router.get(
+    "/{repository_id}/files/{file_id}",
+    response_model=RepositoryFileDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a single stored file with content",
+)
+def get_repository_file(
+    repository_id: uuid.UUID,
+    file_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> RepositoryFileDetailResponse:
+    """
+    Return a single RepositoryFile record by ID, asserting it belongs to repository_id.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    file_record = repository_service.get_repository_file_by_id(db, repository_id, file_id)
+    if file_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File '{file_id}' not found in repository '{repository_id}'.",
+        )
+
+    return RepositoryFileDetailResponse.model_validate(file_record)
 
 
 @router.post(
