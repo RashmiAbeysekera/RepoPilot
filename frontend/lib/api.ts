@@ -379,3 +379,65 @@ export async function getChunkDetail(
   }
 }
 
+// -------------------------------------------------------------------------
+// Vector Embedding types and functions
+// -------------------------------------------------------------------------
+
+export interface EmbeddingGenerationResponse {
+  repository_id: string;
+  total_chunks: number;
+  chunks_processed: number;
+  embeddings_created: number;
+  embeddings_updated: number;
+  embeddings_skipped: number;
+}
+
+export interface EmbeddingStatusResponse {
+  repository_id: string;
+  total_chunks: number;
+  embedded_chunks: number;
+  remaining_chunks: number;
+  model_name: string;
+  embedding_dimension: number;
+}
+
+/** POST /api/repositories/{id}/embeddings/generate — generate vector embeddings for repository chunks. */
+export async function generateRepositoryEmbeddings(
+  repositoryId: string
+): Promise<ApiResult<EmbeddingGenerationResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/embeddings/generate`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Embedding generation failed (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as EmbeddingGenerationResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend during embedding generation." };
+  }
+}
+
+/** GET /api/repositories/{id}/embeddings/status — get embedding coverage status. */
+export async function getRepositoryEmbeddingStatus(
+  repositoryId: string
+): Promise<ApiResult<EmbeddingStatusResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/repositories/${repositoryId}/embeddings/status`
+    );
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ApiError;
+      return { ok: false, error: errorBody.detail ?? `Failed to fetch embedding status (HTTP ${response.status})` };
+    }
+    const data = (await response.json()) as EmbeddingStatusResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Could not reach backend when checking embedding status." };
+  }
+}
+
+

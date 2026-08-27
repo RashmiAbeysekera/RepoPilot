@@ -15,6 +15,7 @@ import {
 import FileExplorer from "./FileExplorer";
 import FileViewer from "./FileViewer";
 import { ChunkExplorer } from "./ChunkExplorer";
+import { EmbeddingManager } from "./EmbeddingManager";
 
 interface RepositoryListProps {
   refreshTrigger: number;
@@ -32,9 +33,9 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   const [analysisResult, setAnalysisResult] = useState<IngestResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // File & Chunk Explorer state
+  // File, Chunk, and Embedding Explorer state
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"files" | "chunks">("files");
+  const [activeTab, setActiveTab] = useState<"files" | "chunks" | "embeddings">("files");
   const [fileList, setFileList] = useState<RepositoryFile[]>([]);
   const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [selectedFileDetail, setSelectedFileDetail] = useState<RepositoryFileDetail | null>(null);
@@ -77,6 +78,11 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   function openChunks(repoId: string) {
     setActiveRepoId(repoId);
     setActiveTab("chunks");
+  }
+
+  function openEmbeddings(repoId: string) {
+    setActiveRepoId(repoId);
+    setActiveTab("embeddings");
   }
 
   async function handleDelete(repo: Repository) {
@@ -184,6 +190,14 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                   >
                     🧩 Chunk Explorer
                   </button>
+                  <button
+                    id={`view-embeddings-${repo.id}`}
+                    onClick={() => openEmbeddings(repo.id)}
+                    className="btn-secondary"
+                    style={{ marginRight: "8px" }}
+                  >
+                    ⚡ Vector Embeddings
+                  </button>
                   <a
                     href={repo.github_url}
                     target="_blank"
@@ -272,6 +286,13 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     >
                       🧩 Code Chunks
                     </button>
+                    <button
+                      onClick={() => setActiveTab("embeddings")}
+                      className={activeTab === "embeddings" ? "btn-primary" : "btn-secondary"}
+                      style={{ fontSize: "0.8rem", padding: "6px 12px" }}
+                    >
+                      ⚡ Vector Embeddings
+                    </button>
                   </div>
 
                   {/* Tab Content */}
@@ -297,8 +318,10 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                         onClose={() => setSelectedFileDetail(null)}
                       />
                     </div>
-                  ) : (
+                  ) : activeTab === "chunks" ? (
                     <ChunkExplorer repositoryId={repo.id} repositoryName={repo.full_name} />
+                  ) : (
+                    <EmbeddingManager repositoryId={repo.id} repositoryName={repo.full_name} />
                   )}
                 </div>
               )}
