@@ -1,5 +1,11 @@
 # The 'schemas' package contains Pydantic models for request/response validation.
 
+from app.schemas.code_chunk import (
+    ChunkGenerationResponse,
+    CodeChunkDetailResponse,
+    CodeChunkListResponse,
+    CodeChunkMetadataResponse,
+)
 from app.schemas.repository import (
     RepositoryCreate,
     RepositoryImportRequest,
@@ -20,4 +26,8 @@ __all__ = [
     "RepositoryFileResponse",
     "RepositoryFileDetailResponse",
     "RepositoryFileListResponse",
+    "CodeChunkMetadataResponse",
+    "CodeChunkDetailResponse",
+    "CodeChunkListResponse",
+    "ChunkGenerationResponse",
 ]
