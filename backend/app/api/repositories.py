@@ -44,12 +44,14 @@ from app.schemas.repository_file import (
     RepositoryFileListResponse,
     RepositoryFileResponse,
 )
+from app.schemas.search import SearchRequest, SearchResponse
 from app.services import (
     chunking_service,
     embedding_service,
     github_service,
     repository_ingestion_service,
     repository_service,
+    search_service,
 )
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
@@ -468,5 +470,46 @@ def get_embedding_status(
         model_name=stats["model_name"],
         embedding_dimension=stats["embedding_dimension"],
     )
+
+
+# --- Semantic Search Endpoints --------------------------------------------
+
+@router.post(
+    "/{repository_id}/search",
+    response_model=SearchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Perform vector similarity search over repository code chunks",
+)
+def search_repository(
+    repository_id: uuid.UUID,
+    data: SearchRequest,
+    db: Session = Depends(get_db),
+) -> SearchResponse:
+    """
+    Search repository code chunks using local vector embeddings and pgvector similarity.
+    Returns top-K matching chunks ordered by relevance score.
+    """
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    try:
+        search_result = search_service.search_repository_chunks(
+            db=db,
+            repository_id=repository_id,
+            query=data.query,
+            top_k=data.top_k,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    return SearchResponse.model_validate(search_result)
+
 
 
