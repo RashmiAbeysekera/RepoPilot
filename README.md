@@ -8,9 +8,9 @@ This is an incremental learning project — each day adds a new layer of full-st
 
 ## Project Status
 
-**Day 5 — Code Chunking & Derived Text Data Persistence**
+**Day 6 — Vector Embedding Storage Pipeline (PostgreSQL + pgvector)**
 
-The architecture divides stored source and documentation files into line-based chunks stored in PostgreSQL:
+The architecture transforms stored code chunks into 384-dimensional vector embeddings stored in PostgreSQL using `pgvector`:
 
 ```
 GitHub Public Repository
@@ -24,21 +24,43 @@ PostgreSQL / Supabase
        ▼ Local Chunking Service (CHUNK_SIZE=100, CHUNK_OVERLAP=10)
 PostgreSQL / Supabase (code_chunks table)
        │
+       ▼ SentenceTransformers (all-MiniLM-L6-v2, 384-dim) + SHA-256 Hashing
+PostgreSQL / Supabase (chunk_embeddings table + pgvector)
+       │
        ▼ REST API
-Next.js 16 UI (Chunk Explorer & Code Chunk Inspector)
+Next.js 16 UI (Vector Embedding Manager & Status Card)
 ```
-
-### What is Code Chunking and Why RepoPilot Needs It?
-Large source code and documentation files cannot fit into AI prompt contexts as single monolithic blocks without diluting relevance or exceeding token limits. Code chunking splits files into smaller, contiguous text segments with line number metadata (`start_line` and `end_line`), laying the groundwork for precise vector retrieval and RAG citations.
-
-> [!NOTE]
-> **Important Disclaimer**: Day 5 implements **purely local, line-based text chunking**. It does **NOT** call GitHub again during chunk generation, and does **NOT** implement vector embeddings, `pgvector`, RAG, Gemini LLM calls, or agent orchestration today.
 
 ---
 
-## Database Architecture (Day 5)
+## What Are Vector Embeddings & Why Does RepoPilot Need Them?
 
-### Database Schema Hierarchy
+### 1. What is an Embedding?
+An embedding converts raw code or documentation text (e.g. `"def authenticate_user(username, password): ..."`) into a dense list of floating-point numbers called a **vector** (e.g., `[0.012, -0.184, 0.721, ...]` across 384 dimensions).
+
+### 2. What is Semantic Search?
+Traditional keyword search looks for exact string matches (`"login"` won't match `"authenticate"`). **Semantic search** compares vectors mathematically (e.g., using cosine similarity) so that queries find relevant code chunks based on **meaning and intent**, even when exact keywords differ.
+
+### 3. What is pgvector?
+`pgvector` is an open-source vector similarity search extension for PostgreSQL. Storing embeddings directly in PostgreSQL eliminates the need for external vector databases (like Pinecone or Chroma), keeping the database architecture unified, reliable, and transactionally safe inside Supabase/PostgreSQL.
+
+> [!NOTE]
+> **Important Disclaimer**: Day 6 implements **local embedding generation and vector persistence**. It does **NOT** call Gemini LLM APIs, does **NOT** run RAG context assembly, and does **NOT** require paid API keys.
+
+---
+
+## Embedding Model & Specifications
+
+- **Selected Model**: `sentence-transformers/all-MiniLM-L6-v2`
+- **Vector Dimension**: `384`
+- **License**: Apache 2.0 (100% free & local, no external API calls)
+- **Model Size**: ~80 MB (runs efficiently on standard CPU)
+
+---
+
+## Database Architecture (Day 6)
+
+### Schema Hierarchy
 
 ```
 repositories
@@ -48,34 +70,34 @@ repository_files
       │
       ▼ (one-to-many)
 code_chunks
+      │
+      ▼ (one-to-one)
+chunk_embeddings (pgvector)
 ```
 
-### `CodeChunk` Model Fields
+### `ChunkEmbedding` Model Fields
 
 | Field | Type | Description |
 |---|---|---|
 | `id` | UUID | Primary key (`gen_random_uuid()`) |
-| `repository_file_id` | UUID | Foreign Key -> `repository_files.id` (`ON DELETE CASCADE`) |
-| `chunk_index` | Integer | 0-based position of the chunk in the file |
-| `content` | Text | Actual text content of the chunk |
-| `start_line` | Integer | 1-based start line in original file |
-| `end_line` | Integer | 1-based end line in original file |
+| `code_chunk_id` | UUID | Foreign Key -> `code_chunks.id` (`ON DELETE CASCADE`, Unique) |
+| `embedding` | Vector(384) | pgvector 384-dimensional vector column |
+| `model_name` | String(100) | Name of model used (`"all-MiniLM-L6-v2"`) |
+| `embedding_dimension` | Integer | Vector dimension (`384`) |
+| `content_hash` | String(64) | SHA-256 hex hash of `CodeChunk.content` for idempotency |
 | `created_at` | DateTime | Timestamp with timezone |
 | `updated_at` | DateTime | Timestamp with timezone |
 
 ---
 
-## Chunking Strategy & Algorithm
+## Idempotency & Change Detection Strategy
 
-- **Deterministic Line-Based Strategy**:
-  - `CHUNK_SIZE_LINES = 100`
-  - `CHUNK_OVERLAP_LINES = 10`
-- **Rules**:
-  - Empty files (`0` lines or whitespace-only) create `0` chunks.
-  - Small files (`<= 100` lines) create `1` chunk spanning lines `1` to `N`.
-  - Large files (`> 100` lines) create multiple overlapping chunks incrementing by `step = CHUNK_SIZE_LINES - CHUNK_OVERLAP_LINES = 90` lines.
-- **Idempotent Regeneration**:
-  Re-running chunk generation for a file or repository transactionally deletes existing chunks for those files before inserting new chunks, guaranteeing zero duplicate records.
+Re-running embedding generation uses **SHA-256 content hashing**:
+1. For each `CodeChunk`, compute `current_hash = sha256(chunk.content)`.
+2. Check existing `ChunkEmbedding` record:
+   - **Matching hash & model**: Skip regeneration (`embeddings_skipped`).
+   - **Different hash (content updated)**: Regenerate vector and update row (`embeddings_updated`).
+   - **No embedding record**: Generate vector and insert row (`embeddings_created`).
 
 ---
 
@@ -86,14 +108,13 @@ code_chunks
 - `POST /api/repositories/{id}/ingest` — Ingest repository files and persist in PostgreSQL
 - `GET  /api/repositories/{repository_id}/files` — List stored files for a repository
 - `GET  /api/repositories/{repository_id}/files/{file_id}` — Retrieve a single stored file
-- `POST /api/repositories/{repository_id}/chunks/generate` — Generate code chunks for all stored files in a repository
-- `POST /api/repositories/{repository_id}/files/{file_id}/chunks/generate` — Generate code chunks for a single file
+- `POST /api/repositories/{repository_id}/chunks/generate` — Generate code chunks for stored files
 - `GET  /api/repositories/{repository_id}/chunks` — List chunk metadata for a repository
-- `GET  /api/repositories/{repository_id}/chunks/{chunk_id}` — Retrieve full content for a single code chunk
+- `POST /api/repositories/{repository_id}/embeddings/generate` — Generate 384-dim vector embeddings for chunks
+- `GET  /api/repositories/{repository_id}/embeddings/status` — Get embedding status (total chunks, embedded count, model, dimension)
 - `POST /api/repositories` — Add a repository manually
 - `GET  /api/repositories` — List all saved repositories
-- `GET  /api/repositories/{id}` — Get a repository by ID
-- `DELETE /api/repositories/{id}` — Delete a repository (cascade deletes files and chunks)
+- `DELETE /api/repositories/{id}` — Delete a repository (cascade deletes files, chunks, and embeddings)
 
 ---
 
@@ -137,7 +158,7 @@ Runs at [http://localhost:3000](http://localhost:3000).
 
 ## Running Tests
 
-Run the complete 50-test suite:
+Run the complete 56-test suite:
 
 ```bash
 # From backend directory with venv active:
