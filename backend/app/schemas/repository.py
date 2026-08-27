@@ -95,7 +95,11 @@ class RepositoryIngestResponse(BaseModel):
     repository: str
     default_branch: str
     files_discovered: int
-    source_files: int
-    ignored_files: int
+    files_stored: int
+    files_updated: int
+    files_skipped: int
+    skip_reasons: dict[str, int] = Field(default_factory=dict)
+    source_files: int = 0
+    ignored_files: int = 0
     file_paths: list[str] = Field(default_factory=list)
 

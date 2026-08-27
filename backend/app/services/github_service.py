@@ -10,6 +10,7 @@ This service does NOT manage database persistence or HTTP routing.
 It strictly encapsulates external communication with GitHub.
 """
 
+import base64
 from urllib.parse import urlparse
 import httpx
 
@@ -127,3 +128,40 @@ def fetch_repository_contents(owner: str, repo: str, path: str = "") -> list[dic
         raise ValueError("GitHub API rate limit exceeded.")
     else:
         raise ValueError(f"GitHub API returned HTTP {response.status_code} for path '{path}'.")
+
+
+def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
+    """
+    Fetch and decode text content for a file from GitHub REST API.
+    Decodes base64 content if returned, or falls back to download_url.
+    Returns None if decoding fails or file is binary.
+    """
+    try:
+        data = fetch_repository_contents(owner, repo, path)
+    except ValueError:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    encoding = data.get("encoding")
+    content_raw = data.get("content")
+
+    if encoding == "base64" and content_raw:
+        try:
+            decoded_bytes = base64.b64decode(content_raw)
+            return decoded_bytes.decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return None
+
+    download_url = data.get("download_url")
+    if download_url:
+        try:
+            with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+                res = client.get(download_url)
+                if res.status_code == 200:
+                    return res.text
+        except httpx.RequestError:
+            return None
+
+    return None

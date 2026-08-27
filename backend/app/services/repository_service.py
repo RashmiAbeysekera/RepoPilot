@@ -27,6 +27,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.models.repository import Repository
+from app.models.repository_file import RepositoryFile
 from app.schemas.repository import RepositoryCreate
 from app.services import github_service
 
@@ -165,3 +166,31 @@ def delete_repository(db: Session, repository: Repository) -> None:
     """
     db.delete(repository)
     db.commit()
+
+
+def list_repository_files(db: Session, repository_id: uuid.UUID) -> list[RepositoryFile]:
+    """
+    Return all stored files for a repository, ordered by path.
+    """
+    return (
+        db.query(RepositoryFile)
+        .filter(RepositoryFile.repository_id == repository_id)
+        .order_by(RepositoryFile.path.asc())
+        .all()
+    )
+
+
+def get_repository_file_by_id(
+    db: Session, repository_id: uuid.UUID, file_id: uuid.UUID
+) -> RepositoryFile | None:
+    """
+    Return a single RepositoryFile by ID, asserting it belongs to repository_id.
+    """
+    return (
+        db.query(RepositoryFile)
+        .filter(
+            RepositoryFile.id == file_id,
+            RepositoryFile.repository_id == repository_id,
+        )
+        .first()
+    )
