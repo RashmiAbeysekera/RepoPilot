@@ -19,7 +19,7 @@ DEPENDENCY INJECTION:
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -38,6 +38,8 @@ from app.schemas.repository import (
     RepositoryImportRequest,
     RepositoryIngestResponse,
     RepositoryResponse,
+    RepositorySyncRequest,
+    RepositorySyncResponse,
 )
 from app.schemas.repository_file import (
     RepositoryFileDetailResponse,
@@ -553,6 +555,73 @@ def ask_repository_question(
         ) from error
 
     return RAGAnswerResponse.model_validate(rag_result)
+
+
+@router.post(
+    "/{repository_id}/sync",
+    response_model=RepositorySyncResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Incrementally synchronize repository changes",
+)
+def sync_repository(
+    repository_id: uuid.UUID,
+    data: RepositorySyncRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RepositorySyncResponse:
+    """
+    Accepts incremental change lists (added, modified, deleted file paths)
+    and synchronizes the database index, code chunks, and vector embeddings.
+    """
+    from app.core.config import get_github_webhook_secret
+
+    # Check webhook secret auth if GITHUB_WEBHOOK_SECRET is set
+    secret = get_github_webhook_secret()
+    if secret:
+        auth_header = request.headers.get("X-Webhook-Secret")
+        if not auth_header or auth_header != secret:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing X-Webhook-Secret header.",
+            )
+
+    repository = repository_service.get_repository_by_id(db, repository_id)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found.",
+        )
+
+    # Clean up input paths
+    added_paths = [p.strip("/") for p in data.added if p]
+    modified_paths = [p.strip("/") for p in data.modified if p]
+    deleted_paths = [p.strip("/") for p in data.removed if p]
+
+    try:
+        sync_result = repository_ingestion_service.sync_repository_changes(
+            db=db,
+            repository=repository,
+            added_paths=added_paths,
+            modified_paths=modified_paths,
+            deleted_paths=deleted_paths,
+            commit_sha=data.commit_sha,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Incremental synchronization failed: {error}",
+        ) from error
+
+    return RepositorySyncResponse(
+        repository_id=repository.id,
+        status="completed",
+        message="Incremental synchronization completed successfully.",
+        files_added=sync_result["files_added"],
+        files_modified=sync_result["files_modified"],
+        files_deleted=sync_result["files_deleted"],
+        files_skipped=sync_result["files_skipped"],
+    )
+
 
 
 

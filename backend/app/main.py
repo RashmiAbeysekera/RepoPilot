@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import FRONTEND_ORIGIN
 from app.core.database import check_database_health
 from app.api import repositories as repositories_router
+from app.api import webhooks as webhooks_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("repopilot.main")
@@ -52,6 +53,7 @@ app.add_middleware(
 # Including a router mounts all its endpoints onto the app.
 # The router's own prefix (/api/repositories) is set inside the router file.
 app.include_router(repositories_router.router)
+app.include_router(webhooks_router.router)
 
 
 # --- Endpoints ----------------------------------------------------------
