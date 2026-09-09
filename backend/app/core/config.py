@@ -26,9 +26,34 @@ DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 _default_origin = "http://localhost:3000"
 FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", _default_origin)
 
-# Google Gemini API key for RAG answer generation.
-GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
+# Dynamic helper functions to ensure edits to .env take effect immediately
+# without requiring a full server process restart.
+def get_gemini_api_key() -> str | None:
+    """Read GEMINI_API_KEY from environment, refreshing from .env file if updated."""
+    load_dotenv(override=True)
+    key = os.getenv("GEMINI_API_KEY")
+    return key.strip() if key else None
 
-# Model identifier for Google Gemini API. Defaults to gemini-2.5-flash.
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+def get_gemini_model() -> str:
+    """Read GEMINI_MODEL from environment, refreshing from .env file if updated."""
+    load_dotenv(override=True)
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    return model.strip() if model else "gemini-3.5-flash"
+
+
+def get_github_webhook_secret() -> str | None:
+    """Read GITHUB_WEBHOOK_SECRET from environment, refreshing from .env file if updated."""
+    load_dotenv(override=True)
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+    return secret.strip() if secret else None
+
+
+# Module-level references for backwards compatibility
+GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GITHUB_WEBHOOK_SECRET: str | None = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+
+
 

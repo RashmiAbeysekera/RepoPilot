@@ -64,6 +64,27 @@ class Repository(Base):
         String(100), nullable=False, default="main"
     )
 
+    # Synchronization status ("idle", "syncing", "synced", "failed")
+    sync_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="idle"
+    )
+
+    # Last successful sync timestamp
+    last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Last processed commit SHA
+    last_commit_sha: Mapped[str | None] = mapped_column(
+        String(40), nullable=True
+    )
+
+    # Error message if the last sync failed
+    sync_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+
+
     # Timestamps — server_default means the database sets these automatically
     # when a row is inserted. onupdate tells SQLAlchemy to refresh updated_at
     # whenever the record is modified via the ORM.
