@@ -346,3 +346,229 @@ def ingest_and_persist_repository(
         "ignored_files": files_skipped + skip_reasons["ignored_directory"],
         "file_paths": [item["path"] for item in discovered_files[:20]],
     }
+
+
+def sync_repository_changes(
+    db: Session,
+    repository: Repository,
+    added_paths: list[str],
+    modified_paths: list[str],
+    deleted_paths: list[str],
+    commit_sha: str | None = None,
+) -> dict[str, Any]:
+    """
+    Incrementally synchronize repository changes (added, modified, deleted files).
+
+    This function processes deletions first, then modifications, then additions.
+    It fetches content from GitHub for additions/modifications using github_service.
+    If GitHub API requests fail, the operation aborts, preserving existing indexed data.
+    """
+    from datetime import datetime, timezone
+    import logging
+    from app.services import chunking_service, embedding_service
+
+    logger = logging.getLogger("repopilot.sync")
+    repo_name_log = repository.full_name
+    logger.info(
+        "Starting incremental sync for repo %s (owner/repo: %s). Additions: %d, Modifications: %d, Deletions: %d",
+        repository.id, repo_name_log, len(added_paths), len(modified_paths), len(deleted_paths)
+    )
+
+    owner, repo = github_service.parse_github_url(repository.github_url)
+
+    files_added_successfully: list[str] = []
+    files_modified_successfully: list[str] = []
+    files_deleted_successfully: list[str] = []
+    files_skipped: list[str] = []
+
+    # Make copies of the input lists so we can modify them if needed
+    added_paths_copy = list(added_paths)
+    modified_paths_copy = list(modified_paths)
+    deleted_paths_copy = list(deleted_paths)
+
+    try:
+        # Step 1: Update repository status to 'syncing'
+        repository.sync_status = "syncing"
+        repository.sync_error = None
+        db.commit()
+
+        # Wrap files updates in a savepoint to support atomic rollback of changes on error
+        with db.begin_nested():
+            # Step 2: Process deletions
+            for path in deleted_paths_copy:
+                path_clean = path.strip("/")
+                file_rec = (
+                    db.query(RepositoryFile)
+                    .filter(
+                        RepositoryFile.repository_id == repository.id,
+                        RepositoryFile.path == path_clean,
+                    )
+                    .first()
+                )
+                if file_rec:
+                    db.delete(file_rec)
+                    files_deleted_successfully.append(path_clean)
+                    logger.info("Deleted indexed file record: %s", path_clean)
+                else:
+                    files_skipped.append(path_clean)
+                    logger.warning("File requested for deletion not found in index: %s", path_clean)
+
+            # Step 3: Process modifications
+            for path in modified_paths_copy:
+                path_clean = path.strip("/")
+                file_rec = (
+                    db.query(RepositoryFile)
+                    .filter(
+                        RepositoryFile.repository_id == repository.id,
+                        RepositoryFile.path == path_clean,
+                    )
+                    .first()
+                )
+
+                # If not found in database, we treat it as an addition
+                if not file_rec:
+                    if path_clean not in added_paths_copy:
+                        added_paths_copy.append(path_clean)
+                    continue
+
+                # Check extension
+                ext = get_file_extension(path_clean)
+                if ext not in SUPPORTED_EXTENSIONS:
+                    db.delete(file_rec)
+                    files_deleted_successfully.append(path_clean)
+                    files_skipped.append(path_clean)
+                    logger.info("Removed previously indexed file %s because its extension is now unsupported", path_clean)
+                    continue
+
+                # Fetch content
+                content = github_service.fetch_file_content(owner, repo, path_clean)
+                if content is None:
+                    db.delete(file_rec)
+                    files_deleted_successfully.append(path_clean)
+                    files_skipped.append(path_clean)
+                    logger.warning("Failed to fetch modified file content or file binary: %s. Removed index.", path_clean)
+                    continue
+
+                size = len(content.encode("utf-8"))
+                if size > MAX_FILE_SIZE_BYTES:
+                    db.delete(file_rec)
+                    files_deleted_successfully.append(path_clean)
+                    files_skipped.append(path_clean)
+                    logger.warning("Modified file %s is oversized (%d bytes). Removed index.", path_clean, size)
+                    continue
+
+                # Update file record
+                file_rec.size = size
+                file_rec.content = content
+                file_rec.file_type = get_file_category(ext)
+                db.flush()
+
+                # Re-generate chunks
+                chunking_service.generate_chunks_for_file(db, file_rec)
+
+                # Re-generate embeddings
+                embedding_service.generate_embeddings_for_file(db, file_rec)
+
+                files_modified_successfully.append(path_clean)
+                logger.info("Successfully synchronized modified file: %s", path_clean)
+
+            # Step 4: Process additions
+            for path in added_paths_copy:
+                path_clean = path.strip("/")
+                
+                file_rec = (
+                    db.query(RepositoryFile)
+                    .filter(
+                        RepositoryFile.repository_id == repository.id,
+                        RepositoryFile.path == path_clean,
+                    )
+                    .first()
+                )
+
+                # Check extension
+                ext = get_file_extension(path_clean)
+                if ext not in SUPPORTED_EXTENSIONS:
+                    files_skipped.append(path_clean)
+                    logger.info("Skipped added file %s due to unsupported extension", path_clean)
+                    continue
+
+                # Fetch content
+                content = github_service.fetch_file_content(owner, repo, path_clean)
+                if content is None:
+                    files_skipped.append(path_clean)
+                    logger.warning("Skipped added file %s because content fetch failed or file is binary", path_clean)
+                    continue
+
+                size = len(content.encode("utf-8"))
+                if size > MAX_FILE_SIZE_BYTES:
+                    files_skipped.append(path_clean)
+                    logger.warning("Skipped added file %s because it is oversized (%d bytes)", path_clean, size)
+                    continue
+
+                if file_rec:
+                    # Update existing record
+                    file_rec.size = size
+                    file_rec.content = content
+                    file_rec.file_type = get_file_category(ext)
+                    db.flush()
+                    chunking_service.generate_chunks_for_file(db, file_rec)
+                    embedding_service.generate_embeddings_for_file(db, file_rec)
+                    files_modified_successfully.append(path_clean)
+                    logger.info("Treated added file %s as modification because record already exists", path_clean)
+                else:
+                    # Create new record
+                    file_rec = RepositoryFile(
+                        repository_id=repository.id,
+                        path=path_clean,
+                        name=path_clean.split("/")[-1],
+                        extension=ext,
+                        size=size,
+                        file_type=get_file_category(ext),
+                        content=content,
+                    )
+                    db.add(file_rec)
+                    db.flush()
+                    
+                    # Generate chunks
+                    chunking_service.generate_chunks_for_file(db, file_rec)
+                    
+                    # Generate embeddings
+                    embedding_service.generate_embeddings_for_file(db, file_rec)
+                    
+                    files_added_successfully.append(path_clean)
+                    logger.info("Successfully synchronized added file: %s", path_clean)
+
+        # Step 5: Update sync status to successful
+        repository.sync_status = "synced"
+        repository.last_synced_at = datetime.now(timezone.utc)
+        if commit_sha:
+            repository.last_commit_sha = commit_sha
+        repository.sync_error = None
+        db.commit()
+
+        logger.info("Successfully completed incremental sync for repo %s", repo_name_log)
+
+    except Exception as error:
+        # Ensure we set status to failed and store the error message
+        try:
+            db.query(Repository).filter(Repository.id == repository.id).update({
+                "sync_status": "failed",
+                "sync_error": str(error)
+            })
+            db.commit()
+        except Exception as db_err:
+            logger.error("Failed to write sync error status to database: %s", db_err)
+        
+        logger.error("Incremental sync failed for repo %s: %s", repo_name_log, error)
+        raise
+
+    return {
+        "repository_id": repository.id,
+        "repository": repository.full_name,
+        "sync_status": repository.sync_status,
+        "files_added": files_added_successfully,
+        "files_modified": files_modified_successfully,
+        "files_deleted": files_deleted_successfully,
+        "files_skipped": files_skipped,
+    }
+

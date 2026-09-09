@@ -25,11 +25,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.config import GEMINI_MODEL
+from app.core.config import get_gemini_model
 from app.models.repository import Repository
 from app.services import context_builder, gemini_service, search_service
 
 logger = logging.getLogger("repopilot.rag")
+
 
 SYSTEM_INSTRUCTION = """You are RepoPilot, an AI developer assistant.
 
@@ -110,7 +111,7 @@ def answer_repository_question(
             "query": query_clean,
             "answer": "I couldn't find enough relevant information in the indexed repository to answer this confidently.",
             "sources": [],
-            "model_name": GEMINI_MODEL,
+            "model_name": get_gemini_model(),
         }
 
     # 6. Transform retrieved chunks into structured context
@@ -151,5 +152,5 @@ def answer_repository_question(
         "query": query_clean,
         "answer": answer_text,
         "sources": sources,
-        "model_name": GEMINI_MODEL,
+        "model_name": get_gemini_model(),
     }

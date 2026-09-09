@@ -68,6 +68,10 @@ class RepositoryResponse(BaseModel):
     github_url: str
     description: str | None
     default_branch: str
+    sync_status: str
+    last_synced_at: datetime | None
+    last_commit_sha: str | None
+    sync_error: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -102,4 +106,30 @@ class RepositoryIngestResponse(BaseModel):
     source_files: int = 0
     ignored_files: int = 0
     file_paths: list[str] = Field(default_factory=list)
+
+
+class RepositorySyncRequest(BaseModel):
+    """
+    Schema for POST /api/repositories/{id}/sync request body.
+    """
+    event: str = Field(default="push", description="The type of event, e.g. push")
+    commit_sha: str | None = Field(default=None, description="The pushed commit SHA")
+    ref: str | None = Field(default=None, description="The git ref/branch name")
+    added: list[str] = Field(default_factory=list, description="List of paths of added files")
+    modified: list[str] = Field(default_factory=list, description="List of paths of modified files")
+    removed: list[str] = Field(default_factory=list, description="List of paths of removed files")
+
+
+class RepositorySyncResponse(BaseModel):
+    """
+    Schema for synchronization responses.
+    """
+    repository_id: uuid.UUID
+    status: str
+    message: str
+    files_added: list[str] = Field(default_factory=list)
+    files_modified: list[str] = Field(default_factory=list)
+    files_deleted: list[str] = Field(default_factory=list)
+    files_skipped: list[str] = Field(default_factory=list)
+
 

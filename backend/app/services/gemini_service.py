@@ -14,7 +14,7 @@ RESPONSIBILITIES:
 import logging
 from typing import Any
 
-from app.core.config import GEMINI_API_KEY, GEMINI_MODEL
+from app.core.config import get_gemini_api_key, get_gemini_model
 
 logger = logging.getLogger("repopilot.gemini")
 
@@ -26,7 +26,8 @@ def get_gemini_client():
     Raises:
         ValueError: If GEMINI_API_KEY is missing or unconfigured.
     """
-    if not GEMINI_API_KEY or not GEMINI_API_KEY.strip():
+    api_key = get_gemini_api_key()
+    if not api_key:
         logger.error("Gemini API call failed: GEMINI_API_KEY is not set.")
         raise ValueError(
             "Gemini API key is not configured. Please set GEMINI_API_KEY in the backend .env file."
@@ -34,7 +35,7 @@ def get_gemini_client():
 
     try:
         from google import genai
-        return genai.Client(api_key=GEMINI_API_KEY.strip())
+        return genai.Client(api_key=api_key)
     except Exception as error:
         logger.error("Failed to initialize Google GenAI client: %s", error)
         raise ValueError(f"Failed to initialize Gemini client: {error}") from error
@@ -59,9 +60,10 @@ def generate_rag_answer(
     Raises:
         ValueError: If API key is missing or request fails due to API error.
     """
-    target_model = model_name or GEMINI_MODEL
+    target_model = model_name or get_gemini_model()
 
     client = get_gemini_client()
+
 
     logger.info("Sending RAG generation request to Gemini model '%s'...", target_model)
 
@@ -71,6 +73,7 @@ def generate_rag_answer(
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=0.2,  # Low temperature for precise, code-grounded answers
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
         response = client.models.generate_content(

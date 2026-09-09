@@ -15,6 +15,8 @@ from app.schemas.repository import (
     RepositoryImportRequest,
     RepositoryIngestResponse,
     RepositoryResponse,
+    RepositorySyncRequest,
+    RepositorySyncResponse,
 )
 from app.schemas.repository_file import (
     RepositoryFileDetailResponse,
@@ -38,6 +40,8 @@ __all__ = [
     "RepositoryImportRequest",
     "RepositoryIngestResponse",
     "RepositoryResponse",
+    "RepositorySyncRequest",
+    "RepositorySyncResponse",
     "RepositoryFileResponse",
     "RepositoryFileDetailResponse",
     "RepositoryFileListResponse",

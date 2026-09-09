@@ -183,13 +183,125 @@ def generate_embeddings_for_repository(
                 created_count += 1
 
     try:
-        db.commit()
+        if db.in_nested_transaction():
+            db.flush()
+        else:
+            db.commit()
     except Exception:
-        db.rollback()
+        if not db.in_nested_transaction():
+            db.rollback()
         raise
 
     return {
         "repository_id": repository_id,
+        "total_chunks": total_chunks,
+        "chunks_processed": len(pending_items),
+        "embeddings_created": created_count,
+        "embeddings_updated": updated_count,
+        "embeddings_skipped": skipped_count,
+    }
+
+
+def generate_embeddings_for_file(
+    db: Session,
+    file_record: RepositoryFile,
+    batch_size: int = 32,
+) -> dict[str, Any]:
+    """
+    Generate and store vector embeddings for all CodeChunk records in a single file.
+
+    Idempotent operation:
+      - Unchanged chunks (matching content_hash & model_name) are skipped.
+      - Modified chunks have their embedding updated.
+      - Chunks without embeddings receive a newly generated ChunkEmbedding row.
+    """
+    chunks = (
+        db.query(CodeChunk)
+        .filter(CodeChunk.repository_file_id == file_record.id)
+        .all()
+    )
+
+    total_chunks = len(chunks)
+    if total_chunks == 0:
+        return {
+            "file_id": file_record.id,
+            "total_chunks": 0,
+            "chunks_processed": 0,
+            "embeddings_created": 0,
+            "embeddings_updated": 0,
+            "embeddings_skipped": 0,
+        }
+
+    # Fetch existing embeddings map for these chunks
+    chunk_ids = [c.id for c in chunks]
+    existing_embeddings = (
+        db.query(ChunkEmbedding)
+        .filter(ChunkEmbedding.code_chunk_id.in_(chunk_ids))
+        .all()
+    )
+    existing_map = {e.code_chunk_id: e for e in existing_embeddings}
+
+    pending_items: list[tuple[CodeChunk, str, ChunkEmbedding | None]] = []
+    skipped_count = 0
+
+    for chunk in chunks:
+        # Skip empty chunks
+        if not chunk.content or not chunk.content.strip():
+            skipped_count += 1
+            continue
+
+        c_hash = compute_content_hash(chunk.content)
+        existing = existing_map.get(chunk.id)
+
+        # Skip if already embedded with same content and model
+        if (
+            existing is not None
+            and existing.content_hash == c_hash
+            and existing.model_name == EMBEDDING_MODEL_NAME
+        ):
+            skipped_count += 1
+        else:
+            pending_items.append((chunk, c_hash, existing))
+
+    created_count = 0
+    updated_count = 0
+
+    # Process pending items in batches
+    for i in range(0, len(pending_items), batch_size):
+        batch = pending_items[i : i + batch_size]
+        batch_texts = [item[0].content for item in batch]
+        batch_vectors = generate_embeddings_batch(batch_texts)
+
+        for (chunk, c_hash, existing), vector in zip(batch, batch_vectors, strict=True):
+            if existing is not None:
+                existing.embedding = vector
+                existing.content_hash = c_hash
+                existing.model_name = EMBEDDING_MODEL_NAME
+                existing.embedding_dimension = EMBEDDING_DIMENSION
+                updated_count += 1
+            else:
+                embedding_record = ChunkEmbedding(
+                    code_chunk_id=chunk.id,
+                    embedding=vector,
+                    model_name=EMBEDDING_MODEL_NAME,
+                    embedding_dimension=EMBEDDING_DIMENSION,
+                    content_hash=c_hash,
+                )
+                db.add(embedding_record)
+                created_count += 1
+
+    try:
+        if db.in_nested_transaction():
+            db.flush()
+        else:
+            db.commit()
+    except Exception:
+        if not db.in_nested_transaction():
+            db.rollback()
+        raise
+
+    return {
+        "file_id": file_record.id,
         "total_chunks": total_chunks,
         "chunks_processed": len(pending_items),
         "embeddings_created": created_count,

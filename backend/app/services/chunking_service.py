@@ -113,9 +113,13 @@ def generate_chunks_for_file(db: Session, file_record: RepositoryFile) -> list[C
         created_chunks.append(chunk)
 
     try:
-        db.commit()
+        if db.in_nested_transaction():
+            db.flush()
+        else:
+            db.commit()
     except Exception:
-        db.rollback()
+        if not db.in_nested_transaction():
+            db.rollback()
         raise
 
     return created_chunks
@@ -171,9 +175,13 @@ def generate_chunks_for_repository(
             total_chunks_created += 1
 
     try:
-        db.commit()
+        if db.in_nested_transaction():
+            db.flush()
+        else:
+            db.commit()
     except Exception:
-        db.rollback()
+        if not db.in_nested_transaction():
+            db.rollback()
         raise
 
     return {
