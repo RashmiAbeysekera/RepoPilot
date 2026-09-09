@@ -210,10 +210,111 @@ Runs at [http://localhost:3000](http://localhost:3000).
 
 ## Running Tests
 
-Run the full automated test suite (including Day 8 RAG tests):
+Run the full automated test suite:
 
 ```bash
 # From backend directory with venv active:
 venv\Scripts\python -m pytest
 ```
 *Note: Real Gemini API calls are mocked in automated unit/integration tests to consume zero API quota.*
+
+---
+
+## Event-Driven Repository Synchronization (Day 9)
+
+RepoPilot has transitioned from **manual full ingestion** to **event-driven incremental synchronization** to achieve zero-cost, high-performance repository intelligence.
+
+### 1. Why Synchronization is Necessary
+Re-ingesting an entire repository on every change is highly inefficient, hits GitHub API rate limits rapidly, and consumes excessive CPU and vector generation resources. Syncing only changed files ensures that RepoPilot stays updated instantly and remains cost-aware.
+
+### 2. Architecture & Workflow
+
+```
+                        GitHub
+                          │
+                          │ Pushed commit event
+                          ▼
+                   GitHub Webhook
+                          │
+                          ▼
+                        n8n
+                Workflow Automation
+                          │
+                          │ HTTPS POST (payload + signature)
+                          ▼
+                      FastAPI
+                          │
+                 Webhook Router (Signature Verification)
+                          │
+                 Sync Service (Incremental Sync)
+                          │
+         ┌────────────────┼────────────────┐
+         ▼                ▼                ▼
+      Added            Modified          Deleted
+         │                │                │
+         ▼                ▼                ▼
+      Chunk            Replace           Remove
+      Embed            chunks            chunks
+      Store            + embeddings      + embeddings
+         │                │                │
+         └────────────────┼────────────────┘
+                          ▼
+                  PostgreSQL + pgvector
+                          │
+                          ▼
+                   Semantic Retrieval
+                          │
+                          ▼
+                       RAG (Grounded QA)
+                          │
+                          ▼
+                       Gemini
+```
+
+### 3. Core Components
+
+- **n8n Orchestration**: n8n listens to GitHub webhooks, validates/filters the branch (only pushes on the default branch are synced), extracts file change details (added, modified, deleted paths), and makes an authenticated HTTP Request to RepoPilot FastAPI backend.
+- **FastAPI Sync Endpoint (`/api/repositories/{id}/sync`)**: A dedicated route accepting the consolidated lists of added, modified, and deleted files.
+- **FastAPI Webhook Endpoint (`/api/webhooks/github`)**: Validates raw GitHub webhooks directly, ensuring signature validation.
+- **Incremental Ingestion Service**:
+  - **Deletions**: Safely deletes files. Cascade database rules automatically purge all associated code chunks and vector embeddings.
+  - **Modifications**: Fetches updated content from GitHub, replaces chunks, and regenerates embeddings.
+  - **Additions**: Validates extensions and file sizes, chunks, and embeddings.
+  - **Idempotency**: Repeated calls to the same commit/event do not duplicate records. Unchanged chunks skip vector generation using SHA-256 content hashes.
+  - **Failure Safety**: If GitHub API fails (network error/rate limiting), the sync is marked failed and existing indexed database records remain completely untouched.
+
+### 4. Webhook Security
+All webhook calls are signed by GitHub with HMAC SHA-256 using a shared secret. FastAPI validates this signature using the `GITHUB_WEBHOOK_SECRET` environment variable. Signature mismatch results in `401 Unauthorized` responses.
+
+---
+
+## n8n Workflow Integration Setup
+
+To set up event-driven repository sync using self-hosted n8n locally:
+
+### 1. Run n8n locally
+You can run n8n locally using Docker or npm:
+```bash
+npx n8n
+```
+This runs n8n at `http://localhost:5678`.
+
+### 2. Import the Workflow
+1. Go to your n8n dashboard and click **Workflows** -> **Import from File**.
+2. Select the exported JSON workflow template located at `backend/app/resources/n8n_workflow.json`.
+
+### 3. Configure the Webhook
+1. In the **GitHub Webhook Trigger** node, configure the trigger to listen to **Push** events on your target repository.
+2. In the **HTTP Request to FastAPI** node, set the URL to your local/deployed FastAPI server URL (e.g. `http://localhost:8000/api/webhooks/github`).
+3. If running locally, you must use a tunneling service (like `ngrok` or `localtunnel`) to expose n8n to the internet so GitHub can reach your webhook URL:
+   ```bash
+   ngrok http 5678
+   ```
+4. Copy the public HTTPS URL from ngrok and set it as the Webhook URL in GitHub.
+
+### 4. Required Environment Variables
+Make sure your backend `.env` file has:
+```
+GITHUB_WEBHOOK_SECRET=your_configured_webhook_secret
+```
+
