@@ -179,6 +179,26 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
                     <span style={{ fontSize: "0.75rem", background: "rgba(59, 130, 246, 0.15)", color: "#93c5fd", padding: "2px 8px", borderRadius: "4px" }}>
                       Branch: <code>{repo.default_branch}</code>
                     </span>
+                    {repo.sync_status === "synced" && (
+                      <span style={{ fontSize: "0.75rem", background: "rgba(16, 185, 129, 0.15)", color: "#34d399", padding: "2px 8px", borderRadius: "4px" }} title={`Last synced: ${repo.last_synced_at ? new Date(repo.last_synced_at).toLocaleString() : 'N/A'}${repo.last_commit_sha ? ' at commit ' + repo.last_commit_sha.substring(0, 7) : ''}`}>
+                        ✓ Synced
+                      </span>
+                    )}
+                    {repo.sync_status === "syncing" && (
+                      <span style={{ fontSize: "0.75rem", background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", padding: "2px 8px", borderRadius: "4px" }}>
+                        Syncing...
+                      </span>
+                    )}
+                    {repo.sync_status === "failed" && (
+                      <span style={{ fontSize: "0.75rem", background: "rgba(239, 68, 68, 0.15)", color: "#f87171", padding: "2px 8px", borderRadius: "4px", cursor: "help" }} title={repo.sync_error || "Unknown sync error"}>
+                        ⚠️ Sync failed
+                      </span>
+                    )}
+                    {(repo.sync_status === "idle" || !repo.sync_status) && (
+                      <span style={{ fontSize: "0.75rem", background: "rgba(156, 163, 175, 0.15)", color: "#d1d5db", padding: "2px 8px", borderRadius: "4px" }}>
+                        Not Synced
+                      </span>
+                    )}
                   </div>
                   {repo.description && <p className="repo-description" style={{ marginTop: "6px" }}>{repo.description}</p>}
                 </div>

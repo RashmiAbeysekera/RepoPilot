@@ -90,6 +90,10 @@ export interface Repository {
   github_url: string;
   description: string | null;
   default_branch: string;
+  sync_status: string;
+  last_synced_at: string | null;
+  last_commit_sha: string | null;
+  sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
