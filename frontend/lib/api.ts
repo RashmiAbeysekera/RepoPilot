@@ -15,12 +15,14 @@ const API_BASE_URL =
 // Health check types and functions
 // -------------------------------------------------------------------------
 
-export type HealthStatus = "healthy" | "unavailable";
+export type HealthStatus = "healthy" | "unavailable" | "not-configured";
 
 export interface HealthResponse {
   status: string;
   backend: HealthStatus;
   database: HealthStatus;
+  ai?: HealthStatus;
+  github?: HealthStatus;
 }
 
 /**
@@ -512,10 +514,27 @@ export interface RAGSourceReference {
   repository_file_id: string;
   file_path: string;
   chunk_index: number;
-  start_line: number;
-  end_line: number;
+  start_line?: number | null;
+  end_line?: number | null;
+  similarity?: number;
   score: number;
   content: string;
+}
+
+export interface RAGFileSource {
+  file_path: string;
+  repository_file_id: string | null;
+  line_ranges: string[];
+  max_similarity: number;
+  chunks_count: number;
+}
+
+export interface AgentTraceStep {
+  tool: string;
+  input: Record<string, unknown> | string;
+  result_summary: string;
+  status?: string;
+  duration_ms?: number;
 }
 
 export interface RAGAnswerResponse {
@@ -523,14 +542,20 @@ export interface RAGAnswerResponse {
   query: string;
   answer: string;
   sources: RAGSourceReference[];
+  file_sources?: RAGFileSource[];
+  trace?: AgentTraceStep[];
   model_name: string;
+  chunks_retrieved?: number;
+  confidence_warning?: string | null;
+  duration_ms?: number | null;
 }
 
-/** POST /api/repositories/{id}/ask — ask a question about an indexed repository via RAG pipeline. */
+/** POST /api/repositories/{id}/ask — ask a question about an indexed repository via agentic RAG workflow. */
 export async function askRepositoryQuestion(
   repositoryId: string,
   query: string,
-  topK: number = 5
+  topK: number = 5,
+  useAgent: boolean = true
 ): Promise<ApiResult<RAGAnswerResponse>> {
   try {
     const response = await fetch(
@@ -538,7 +563,7 @@ export async function askRepositoryQuestion(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: topK }),
+        body: JSON.stringify({ query, top_k: topK, use_agent: useAgent }),
       }
     );
 
