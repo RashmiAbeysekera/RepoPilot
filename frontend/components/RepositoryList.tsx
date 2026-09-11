@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   listRepositories,
   deleteRepository,
@@ -44,22 +44,30 @@ export default function RepositoryList({ refreshTrigger }: RepositoryListProps) 
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  const loadRepositories = useCallback(async () => {
+  const [prevRefreshTrigger, setPrevRefreshTrigger] = useState(refreshTrigger);
+  if (refreshTrigger !== prevRefreshTrigger) {
+    setPrevRefreshTrigger(refreshTrigger);
     setIsLoading(true);
     setLoadError(null);
-    const result = await listRepositories();
-    setIsLoading(false);
-
-    if (result.ok) {
-      setRepositories(result.data);
-    } else {
-      setLoadError(result.error);
-    }
-  }, []);
+  }
 
   useEffect(() => {
-    loadRepositories();
-  }, [loadRepositories, refreshTrigger]);
+    let ignore = false;
+    listRepositories().then((result) => {
+      if (!ignore) {
+        setIsLoading(false);
+        if (result.ok) {
+          setRepositories(result.data);
+        } else {
+          setLoadError(result.error);
+        }
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [refreshTrigger]);
 
   async function loadFiles(repoId: string) {
     setActiveRepoId(repoId);

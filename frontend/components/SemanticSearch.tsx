@@ -222,7 +222,7 @@ export function SemanticSearch({ repositoryId, repositoryName }: SemanticSearchP
             }}
           >
             <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-              Results for: <em>"{searchResult.query}"</em>
+              Results for: <em>&quot;{searchResult.query}&quot;</em>
             </span>
             <span
               style={{

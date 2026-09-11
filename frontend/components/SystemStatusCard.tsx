@@ -20,20 +20,11 @@ export default function SystemStatusCard() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
-  async function handleCheckHealth() {
-    setIsChecking(true);
-    setBackendState("checking");
-    setDatabaseState("checking");
-    setAiState("checking");
-    setGithubState("checking");
-    setErrorMessage(null);
-
-    const result = await checkBackendHealth();
-
+  const applyHealthResult = (result: Awaited<ReturnType<typeof checkBackendHealth>>) => {
     if (result.ok) {
       setBackendState(result.data.backend === "healthy" ? "healthy" : "unavailable");
       setDatabaseState(result.data.database === "healthy" ? "healthy" : "unavailable");
-      
+
       const aiStatus = result.data.ai;
       setAiState(aiStatus === "healthy" ? "healthy" : aiStatus === "unavailable" ? "unavailable" : "not-configured");
 
@@ -50,12 +41,31 @@ export default function SystemStatusCard() {
       setGithubState("unavailable");
       setErrorMessage("Couldn't reach the backend. Is it running on http://localhost:8000?");
     }
+  };
 
+  async function handleCheckHealth() {
+    setIsChecking(true);
+    setBackendState("checking");
+    setDatabaseState("checking");
+    setAiState("checking");
+    setGithubState("checking");
+    setErrorMessage(null);
+
+    const result = await checkBackendHealth();
+    applyHealthResult(result);
     setIsChecking(false);
   }
 
   useEffect(() => {
-    handleCheckHealth();
+    let ignore = false;
+    checkBackendHealth().then((result) => {
+      if (!ignore) {
+        applyHealthResult(result);
+      }
+    });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   return (

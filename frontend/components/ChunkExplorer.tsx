@@ -27,7 +27,16 @@ export function ChunkExplorer({ repositoryId, repositoryName }: ChunkExplorerPro
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const loadChunks = async () => {
+  const [prevRepositoryId, setPrevRepositoryId] = useState(repositoryId);
+  if (repositoryId !== prevRepositoryId) {
+    setPrevRepositoryId(repositoryId);
+    setSelectedChunk(null);
+    setGenerationResult(null);
+    setLoadingChunks(true);
+    setError(null);
+  }
+
+  const loadChunks = React.useCallback(async () => {
     setLoadingChunks(true);
     setError(null);
     const result = await listRepositoryChunks(repositoryId);
@@ -38,12 +47,24 @@ export function ChunkExplorer({ repositoryId, repositoryName }: ChunkExplorerPro
     } else {
       setError(result.error);
     }
-  };
+  }, [repositoryId]);
 
   useEffect(() => {
-    loadChunks();
-    setSelectedChunk(null);
-    setGenerationResult(null);
+    let ignore = false;
+    listRepositoryChunks(repositoryId).then((result) => {
+      if (!ignore) {
+        setLoadingChunks(false);
+        if (result.ok) {
+          setChunks(result.data.chunks);
+        } else {
+          setError(result.error);
+        }
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
   }, [repositoryId]);
 
   const handleGenerate = async () => {

@@ -20,7 +20,16 @@ export function EmbeddingManager({ repositoryId, repositoryName }: EmbeddingMana
   const [generationResult, setGenerationResult] = useState<EmbeddingGenerationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = async () => {
+  const [prevRepositoryId, setPrevRepositoryId] = useState(repositoryId);
+  if (repositoryId !== prevRepositoryId) {
+    setPrevRepositoryId(repositoryId);
+    setStatus(null);
+    setGenerationResult(null);
+    setLoadingStatus(true);
+    setError(null);
+  }
+
+  const fetchStatus = React.useCallback(async () => {
     setLoadingStatus(true);
     setError(null);
     const result = await getRepositoryEmbeddingStatus(repositoryId);
@@ -31,11 +40,24 @@ export function EmbeddingManager({ repositoryId, repositoryName }: EmbeddingMana
     } else {
       setError(result.error);
     }
-  };
+  }, [repositoryId]);
 
   useEffect(() => {
-    fetchStatus();
-    setGenerationResult(null);
+    let ignore = false;
+    getRepositoryEmbeddingStatus(repositoryId).then((result) => {
+      if (!ignore) {
+        setLoadingStatus(false);
+        if (result.ok) {
+          setStatus(result.data);
+        } else {
+          setError(result.error);
+        }
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
   }, [repositoryId]);
 
   const handleGenerate = async () => {
