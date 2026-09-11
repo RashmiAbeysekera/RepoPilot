@@ -11,12 +11,14 @@ RESPONSIBILITIES:
 """
 
 import logging
+import time
 import uuid
 from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.logging_config import log_event
 from app.models.chunk_embedding import ChunkEmbedding
 from app.models.code_chunk import CodeChunk
 from app.models.repository import Repository
@@ -49,6 +51,7 @@ def search_repository_chunks(
                    or repository has chunks but no vector embeddings generated yet.
     """
     # 1. Validate query string
+    start_time = time.time()
     if not query or not query.strip():
         raise ValueError("Search query cannot be empty or whitespace-only.")
 
@@ -155,6 +158,18 @@ def search_repository_chunks(
         repository_id,
         len(formatted_results),
         top_k,
+    )
+
+    duration_ms = int((time.time() - start_time) * 1000)
+    top_similarity = formatted_results[0]["score"] if formatted_results else 0.0
+
+    log_event(
+        logger,
+        "vector_search",
+        repository_id=str(repository_id),
+        results_count=len(formatted_results),
+        top_similarity=top_similarity,
+        duration_ms=duration_ms,
     )
 
     return {

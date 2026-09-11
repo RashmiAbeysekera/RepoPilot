@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.rate_limiter import InMemoryRateLimiter
 from app.schemas.chunk_embedding import (
     EmbeddingGenerationResponse,
     EmbeddingStatusResponse,
@@ -500,6 +501,9 @@ def search_repository(
             detail=f"Repository '{repository_id}' not found.",
         )
 
+    # Protect vector search from abuse
+    InMemoryRateLimiter.check_rate_limit(key=f"search:{repository_id}", max_requests=60)
+
     try:
         search_result = search_service.search_repository_chunks(
             db=db,
@@ -541,12 +545,16 @@ def ask_repository_question(
             detail=f"Repository '{repository_id}' not found.",
         )
 
+    # Protect expensive AI generation endpoints from rate-limit exhaustion
+    InMemoryRateLimiter.check_rate_limit(key=f"ask:{repository_id}")
+
     try:
         rag_result = rag_service.answer_repository_question(
             db=db,
             repository_id=repository_id,
             query=data.query,
             top_k=data.top_k,
+            use_agent=data.use_agent,
         )
     except ValueError as error:
         raise HTTPException(

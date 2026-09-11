@@ -3,7 +3,7 @@ Pydantic schemas for the Semantic Search API.
 """
 
 import uuid
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SearchRequest(BaseModel):
@@ -13,6 +13,8 @@ class SearchRequest(BaseModel):
 
     query: str = Field(
         ...,
+        min_length=1,
+        max_length=1000,
         description="Natural language query string",
         examples=["Where is user authentication implemented?"],
     )
@@ -22,6 +24,14 @@ class SearchRequest(BaseModel):
         ge=1,
         le=20,
     )
+
+    @field_validator("query")
+    @classmethod
+    def validate_query_not_empty(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Query cannot be empty or whitespace only.")
+        return cleaned
 
 
 class SearchResultItem(BaseModel):
