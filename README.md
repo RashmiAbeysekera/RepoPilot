@@ -304,6 +304,7 @@ This runs n8n at `http://localhost:5678`.
 ### 2. Import the Workflow
 1. Go to your n8n dashboard and click **Workflows** -> **Import from File**.
 2. Select the exported JSON workflow template located at `backend/app/resources/n8n_workflow.json`.
+3. The workflow template dynamically evaluates the repository's default branch (`refs/heads/{default_branch}`) from GitHub's payload, supporting repositories with any default branch (`main`, `master`, `develop`, etc.) while FastAPI validates the event against the registered repository configuration.
 
 ### 3. Configure the Webhook
 1. In the **GitHub Webhook Trigger** node, configure the trigger to listen to **Push** events on your target repository.
@@ -320,6 +321,29 @@ Make sure your backend `.env` file has:
 GITHUB_WEBHOOK_SECRET=your_configured_webhook_secret
 RAG_SIMILARITY_THRESHOLD=0.35
 ```
+
+### 5. Manual Testing & Verification
+> **Important**: The n8n integration requires manual setup (starting your local n8n instance, importing the workflow template, and configuring GitHub/tunnel credentials). It is not fully automated out of the box without these manual steps.
+
+To manually test the workflow:
+1. In n8n, open the workflow and click **Test workflow** on the webhook trigger node.
+2. Send a test webhook payload using `curl`:
+   ```bash
+   curl -X POST http://localhost:5678/webhook-test/github-webhook \
+     -H "Content-Type: application/json" \
+     -H "X-GitHub-Event: push" \
+     -d '{
+       "ref": "refs/heads/main",
+       "repository": {
+         "full_name": "owner/repo",
+         "default_branch": "main"
+       },
+       "commits": []
+     }'
+   ```
+3. Verify that the **Verify Default Branch** node evaluates `true` and forwards the request to FastAPI (`http://localhost:8000/api/webhooks/github`).
+4. Repeat with `"ref": "refs/heads/feature-1"` to verify that non-default branch pushes are filtered out.
+
 
 ---
 

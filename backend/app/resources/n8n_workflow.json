@@ -26,9 +26,9 @@
           },
           "conditions": [
             {
-              "id": "ref-main-check",
+              "id": "ref-default-branch-check",
               "leftValue": "={{ $json.body.ref }}",
-              "rightValue": "refs/heads/main",
+              "rightValue": "={{ 'refs/heads/' + ($json.body.repository && $json.body.repository.default_branch ? $json.body.repository.default_branch : 'main') }}",
               "operator": {
                 "type": "string",
                 "operation": "equals"
