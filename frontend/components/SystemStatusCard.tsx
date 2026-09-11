@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { checkBackendHealth } from "@/lib/api";
 import StatusRow, { type StatusState } from "@/components/StatusRow";
@@ -15,6 +15,8 @@ import StatusRow, { type StatusState } from "@/components/StatusRow";
 export default function SystemStatusCard() {
   const [backendState, setBackendState] = useState<StatusState>("checking");
   const [databaseState, setDatabaseState] = useState<StatusState>("checking");
+  const [aiState, setAiState] = useState<StatusState>("checking");
+  const [githubState, setGithubState] = useState<StatusState>("checking");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -22,6 +24,8 @@ export default function SystemStatusCard() {
     setIsChecking(true);
     setBackendState("checking");
     setDatabaseState("checking");
+    setAiState("checking");
+    setGithubState("checking");
     setErrorMessage(null);
 
     const result = await checkBackendHealth();
@@ -29,17 +33,30 @@ export default function SystemStatusCard() {
     if (result.ok) {
       setBackendState(result.data.backend === "healthy" ? "healthy" : "unavailable");
       setDatabaseState(result.data.database === "healthy" ? "healthy" : "unavailable");
+      
+      const aiStatus = result.data.ai;
+      setAiState(aiStatus === "healthy" ? "healthy" : aiStatus === "unavailable" ? "unavailable" : "not-configured");
+
+      const ghStatus = result.data.github;
+      setGithubState(ghStatus === "healthy" ? "healthy" : ghStatus === "unavailable" ? "unavailable" : "not-configured");
+
       if (result.data.database !== "healthy") {
         setErrorMessage("Backend is reachable, but it can't reach the database right now.");
       }
     } else {
       setBackendState("unavailable");
       setDatabaseState("unavailable");
+      setAiState("unavailable");
+      setGithubState("unavailable");
       setErrorMessage("Couldn't reach the backend. Is it running on http://localhost:8000?");
     }
 
     setIsChecking(false);
   }
+
+  useEffect(() => {
+    handleCheckHealth();
+  }, []);
 
   return (
     <div className="repopilot-card">
@@ -49,8 +66,8 @@ export default function SystemStatusCard() {
         <StatusRow label="Frontend" state="running" />
         <StatusRow label="Backend" state={backendState} />
         <StatusRow label="Database" state={databaseState} />
-        <StatusRow label="AI" state="not-configured" />
-        <StatusRow label="GitHub" state="not-configured" />
+        <StatusRow label="AI" state={aiState} />
+        <StatusRow label="GitHub" state={githubState} />
       </div>
 
       {errorMessage && (

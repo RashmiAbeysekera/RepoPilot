@@ -11,11 +11,15 @@ It strictly encapsulates external communication with GitHub.
 """
 
 import base64
+import time
 from urllib.parse import urlparse
 import httpx
 
 GITHUB_API_BASE = "https://api.github.com"
 DEFAULT_TIMEOUT = 10.0  # seconds
+
+# In-memory cache for health probe to prevent excessive external requests
+_github_health_cache: dict[str, float | str] = {"status": "healthy", "timestamp": 0.0}
 
 
 def parse_github_url(github_url: str) -> tuple[str, str]:
@@ -165,3 +169,37 @@ def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
             return None
 
     return None
+
+
+def check_github_health(cache_ttl: float = 0.0) -> str:
+    """
+    Check connectivity to the public GitHub REST API.
+    Optionally uses an in-memory TTL cache when cache_ttl > 0 to avoid excessive outbound requests.
+
+    Returns:
+        'healthy' if GitHub API is reachable,
+        'unavailable' if network or timeout failure occurs.
+    """
+    now = time.time()
+    last_ts = float(_github_health_cache.get("timestamp", 0.0))
+    if cache_ttl > 0.0 and (now - last_ts < cache_ttl) and _github_health_cache.get("status"):
+        return str(_github_health_cache["status"])
+
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "RepoPilot-AI",
+    }
+    status_result = "unavailable"
+    try:
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.get(f"{GITHUB_API_BASE}/zen", headers=headers)
+            # 200 or 403 (rate limited) both confirm the GitHub API is reachable
+            if resp.status_code in (200, 403):
+                status_result = "healthy"
+    except Exception:
+        status_result = "unavailable"
+
+    _github_health_cache["status"] = status_result
+    _github_health_cache["timestamp"] = now
+    return status_result
+
