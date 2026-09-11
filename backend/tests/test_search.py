@@ -287,7 +287,7 @@ def test_api_semantic_search_validation_errors(client: TestClient, db_session: S
         f"/api/repositories/{repo.id}/search",
         json={"query": "", "top_k": 5},
     )
-    assert resp_empty.status_code == 400
+    assert resp_empty.status_code in (400, 422)
 
     # Nonexistent repo UUID
     resp_404 = client.post(

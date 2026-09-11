@@ -25,7 +25,9 @@ from app.schemas.repository_file import (
 )
 
 from app.schemas.rag import (
+    AgentTraceStep,
     RAGAnswerResponse,
+    RAGFileSource,
     RAGQuestionRequest,
     RAGSourceReference,
 )
@@ -56,6 +58,8 @@ __all__ = [
     "SearchResponse",
     "RAGQuestionRequest",
     "RAGSourceReference",
+    "RAGFileSource",
     "RAGAnswerResponse",
+    "AgentTraceStep",
 ]
 
