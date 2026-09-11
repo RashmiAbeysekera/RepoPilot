@@ -22,6 +22,21 @@ DEFAULT_TIMEOUT = 10.0  # seconds
 _github_health_cache: dict[str, float | str] = {"status": "healthy", "timestamp": 0.0}
 
 
+class GitHubServiceError(ValueError):
+    """Base exception for all GitHub service errors."""
+    pass
+
+
+class GitHubResourceNotFoundError(GitHubServiceError):
+    """Raised when a repository, directory path, or file is not found (HTTP 404)."""
+    pass
+
+
+class GitHubAPIError(GitHubServiceError):
+    """Raised when an external API, network, rate limit (HTTP 403), or timeout occurs."""
+    pass
+
+
 def parse_github_url(github_url: str) -> tuple[str, str]:
     """
     Extract (owner, repo) from a public GitHub URL.
@@ -79,9 +94,9 @@ def fetch_repository_metadata(owner: str, repo: str) -> dict:
         with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
             response = client.get(url, headers=headers)
     except httpx.TimeoutException as err:
-        raise ValueError(f"GitHub API request timed out for '{owner}/{repo}'.") from err
+        raise GitHubAPIError(f"GitHub API request timed out for '{owner}/{repo}'.") from err
     except httpx.RequestError as err:
-        raise ValueError(f"Could not connect to GitHub API: {err}") from err
+        raise GitHubAPIError(f"Could not connect to GitHub API: {err}") from err
 
     if response.status_code == 200:
         data = response.json()
@@ -93,11 +108,11 @@ def fetch_repository_metadata(owner: str, repo: str) -> dict:
             "default_branch": data.get("default_branch", "main"),
         }
     elif response.status_code == 404:
-        raise ValueError(f"GitHub repository '{owner}/{repo}' not found or is private.")
+        raise GitHubResourceNotFoundError(f"GitHub repository '{owner}/{repo}' not found or is private.")
     elif response.status_code == 403:
-        raise ValueError("GitHub API rate limit exceeded. Please try again later.")
+        raise GitHubAPIError("GitHub API rate limit exceeded. Please try again later.")
     else:
-        raise ValueError(f"GitHub API error (HTTP {response.status_code}).")
+        raise GitHubAPIError(f"GitHub API error (HTTP {response.status_code}).")
 
 
 def fetch_repository_contents(owner: str, repo: str, path: str = "") -> list[dict] | dict:
@@ -120,30 +135,50 @@ def fetch_repository_contents(owner: str, repo: str, path: str = "") -> list[dic
         with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
             response = client.get(url, headers=headers)
     except httpx.TimeoutException as err:
-        raise ValueError(f"GitHub API request timed out fetching contents for path '{path}'.") from err
+        raise GitHubAPIError(f"GitHub API request timed out fetching contents for path '{path}'.") from err
     except httpx.RequestError as err:
-        raise ValueError(f"Could not connect to GitHub API: {err}") from err
+        raise GitHubAPIError(f"Could not connect to GitHub API: {err}") from err
 
     if response.status_code == 200:
         return response.json()
     elif response.status_code == 404:
-        raise ValueError(f"Path '{path}' not found in repository '{owner}/{repo}'.")
+        # Check if this 404 is because the repository genuinely has 0 files/commits
+        try:
+            error_data = response.json()
+            msg = str(error_data.get("message", "")).lower()
+            if "empty" in msg and not clean_path:
+                return []
+        except Exception:
+            pass
+        raise GitHubResourceNotFoundError(f"Path '{path}' not found in repository '{owner}/{repo}'.")
     elif response.status_code == 403:
-        raise ValueError("GitHub API rate limit exceeded.")
+        raise GitHubAPIError("GitHub API rate limit exceeded.")
     else:
-        raise ValueError(f"GitHub API returned HTTP {response.status_code} for path '{path}'.")
+        raise GitHubAPIError(f"GitHub API returned HTTP {response.status_code} for path '{path}'.")
 
 
 def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
     """
     Fetch and decode text content for a file from GitHub REST API.
     Decodes base64 content if returned, or falls back to download_url.
-    Returns None if decoding fails or file is binary.
+
+    Returns:
+        Decoded text string if successfully fetched, or None if the file
+        cannot be decoded (binary/non-UTF-8).
+
+    Raises:
+        GitHubResourceNotFoundError: If the file does not exist on GitHub (HTTP 404).
+        GitHubAPIError: If an external API, network, rate limit (403), or timeout error occurs.
     """
     try:
         data = fetch_repository_contents(owner, repo, path)
-    except ValueError:
-        return None
+    except GitHubResourceNotFoundError:
+        raise
+    except ValueError as err:
+        err_msg = str(err).lower()
+        if "not found" in err_msg or "404" in err_msg:
+            raise GitHubResourceNotFoundError(f"File '{path}' not found in repository '{owner}/{repo}'.") from err
+        raise GitHubAPIError(str(err)) from err
 
     if not isinstance(data, dict):
         return None
@@ -151,11 +186,12 @@ def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
     encoding = data.get("encoding")
     content_raw = data.get("content")
 
-    if encoding == "base64" and content_raw:
+    if encoding == "base64" and content_raw is not None:
         try:
             decoded_bytes = base64.b64decode(content_raw)
             return decoded_bytes.decode("utf-8")
         except (ValueError, UnicodeDecodeError):
+            # Non-decodable / binary file
             return None
 
     download_url = data.get("download_url")
@@ -165,8 +201,16 @@ def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
                 res = client.get(download_url)
                 if res.status_code == 200:
                     return res.text
-        except httpx.RequestError:
-            return None
+                elif res.status_code == 404:
+                    raise GitHubResourceNotFoundError(f"File '{path}' download not found.")
+                elif res.status_code == 403:
+                    raise GitHubAPIError("GitHub API rate limit exceeded.")
+                else:
+                    raise GitHubAPIError(f"GitHub API returned HTTP {res.status_code} downloading '{path}'.")
+        except httpx.TimeoutException as err:
+            raise GitHubAPIError(f"GitHub API request timed out downloading file '{path}'.") from err
+        except httpx.RequestError as err:
+            raise GitHubAPIError(f"Could not connect to GitHub API downloading file '{path}': {err}") from err
 
     return None
 

@@ -11,6 +11,8 @@ RESPONSIBILITIES:
   - Perform idempotent upserts (insert new, update modified, delete stale ONLY on successful discovery)
 """
 
+import logging
+from datetime import datetime, timezone
 from typing import Any
 import uuid
 
@@ -19,6 +21,8 @@ from sqlalchemy.orm import Session
 from app.models.repository import Repository
 from app.models.repository_file import RepositoryFile
 from app.services import github_service
+
+logger = logging.getLogger("repopilot.ingestion")
 
 IGNORED_DIRECTORIES = {
     ".git",
@@ -147,10 +151,7 @@ def ingest_repository_contents(
         if discovered_counter[0] >= MAX_FILES_LIMIT:
             return
 
-        try:
-            items = github_service.fetch_repository_contents(owner, repo, current_path)
-        except ValueError:
-            return
+        items = github_service.fetch_repository_contents(owner, repo, current_path)
 
         if not isinstance(items, list):
             items = [items]
@@ -199,9 +200,10 @@ def ingest_and_persist_repository(
     Traverse repository on GitHub, fetch contents of supported text files,
     and persist/upsert RepositoryFile records cleanly into PostgreSQL.
 
-    Stale file deletion happens ONLY if discovery completes successfully.
-    If GitHub API requests fail (e.g. rate limit / network error), the process
-    aborts, raising ValueError, and database records remain untouched.
+    Stale file deletion happens ONLY if discovery completes successfully without truncation.
+    If GitHub API requests fail (e.g. rate limit / network error / timeout), the process
+    aborts, raising ValueError, marks repository sync_status as 'failed', and existing
+    database records remain untouched.
     """
     owner, repo = github_service.parse_github_url(repository.github_url)
 
@@ -216,12 +218,17 @@ def ingest_and_persist_repository(
     }
 
     discovered_counter = [0]
-    discovery_success = False
+    was_truncated = False
 
     def _traverse(current_path: str, current_depth: int):
-        nonlocal total_discovered, files_skipped
+        nonlocal total_discovered, files_skipped, was_truncated
 
-        if current_depth > MAX_DEPTH_LIMIT or discovered_counter[0] >= max_files:
+        if current_depth > MAX_DEPTH_LIMIT:
+            was_truncated = True
+            return
+
+        if discovered_counter[0] >= max_files:
+            was_truncated = True
             return
 
         # Fetch contents from GitHub.
@@ -234,6 +241,7 @@ def ingest_and_persist_repository(
 
         for item in items:
             if discovered_counter[0] >= max_files:
+                was_truncated = True
                 break
 
             item_type = item.get("type")
@@ -261,12 +269,14 @@ def ingest_and_persist_repository(
                     skip_reasons["oversized"] += 1
                     continue
 
-                # Fetch text content
+                # Fetch text content. If an API/network/rate-limit error occurs,
+                # fetch_file_content raises ValueError, which aborts traversal
+                # immediately, protecting existing database files from deletion.
                 content = github_service.fetch_file_content(owner, repo, item_path)
                 if content is None and size > 0:
-                    files_skipped += 1
-                    skip_reasons["fetch_failed"] += 1
-                    continue
+                    # Content could not be decoded or fetched for a file with size > 0.
+                    # A failed file fetch must never be treated as a deleted file.
+                    raise ValueError(f"Failed to fetch or decode content for file '{item_path}'.")
 
                 file_category = get_file_category(ext)
                 discovered_files.append({
@@ -278,59 +288,76 @@ def ingest_and_persist_repository(
                     "content": content or "",
                 })
 
-    # Step 1: Run GitHub Discovery
-    _traverse("", 0)
-    discovery_success = True
-
-    # Step 2: Update Database ONLY if discovery completed successfully
-    if not discovery_success:
-        raise ValueError("GitHub repository discovery did not complete successfully.")
-
-    existing_records = (
-        db.query(RepositoryFile)
-        .filter(RepositoryFile.repository_id == repository.id)
-        .all()
-    )
-    existing_map = {f.path: f for f in existing_records}
-
-    stored_count = 0
-    updated_count = 0
-    discovered_paths: set[str] = set()
-
-    for item in discovered_files:
-        path = item["path"]
-        discovered_paths.add(path)
-
-        if path in existing_map:
-            record = existing_map[path]
-            record.name = item["name"]
-            record.extension = item["extension"]
-            record.size = item["size"]
-            record.file_type = item["file_type"]
-            record.content = item["content"]
-            updated_count += 1
-        else:
-            record = RepositoryFile(
-                repository_id=repository.id,
-                path=item["path"],
-                name=item["name"],
-                extension=item["extension"],
-                size=item["size"],
-                file_type=item["file_type"],
-                content=item["content"],
-            )
-            db.add(record)
-            stored_count += 1
-
-    # Remove stale files ONLY because discovery succeeded completely
-    for record in existing_records:
-        if record.path not in discovered_paths:
-            db.delete(record)
-
     try:
+        # Step 0: Set repository status to syncing
+        repository.sync_status = "syncing"
+        repository.sync_error = None
         db.commit()
-    except Exception:
-        db.rollback()
+
+        # Step 1: Run GitHub Discovery
+        _traverse("", 0)
+
+        existing_records = (
+            db.query(RepositoryFile)
+            .filter(RepositoryFile.repository_id == repository.id)
+            .all()
+        )
+        existing_map = {f.path: f for f in existing_records}
+
+        stored_count = 0
+        updated_count = 0
+        discovered_paths: set[str] = set()
+
+        for item in discovered_files:
+            path = item["path"]
+            discovered_paths.add(path)
+
+            if path in existing_map:
+                record = existing_map[path]
+                record.name = item["name"]
+                record.extension = item["extension"]
+                record.size = item["size"]
+                record.file_type = item["file_type"]
+                record.content = item["content"]
+                updated_count += 1
+            else:
+                record = RepositoryFile(
+                    repository_id=repository.id,
+                    path=item["path"],
+                    name=item["name"],
+                    extension=item["extension"],
+                    size=item["size"],
+                    file_type=item["file_type"],
+                    content=item["content"],
+                )
+                db.add(record)
+                stored_count += 1
+
+        # Step 2: Remove stale files ONLY because discovery completed completely without truncation
+        if not was_truncated:
+            for record in existing_records:
+                if record.path not in discovered_paths:
+                    db.delete(record)
+        else:
+            logger.warning(
+                "Discovery for repo '%s' was truncated (depth or max_files); skipping stale file deletion.",
+                repository.full_name,
+            )
+
+        # Step 3: Update sync status to synced
+        repository.sync_status = "synced"
+        repository.last_synced_at = datetime.now(timezone.utc)
+        repository.sync_error = None
+        db.commit()
+
+    except Exception as error:
+        try:
+            db.rollback()
+            repository.sync_status = "failed"
+            repository.sync_error = str(error)
+            db.commit()
+        except Exception as db_err:
+            logger.error("Failed to update repository sync status on failure: %s", db_err)
         raise
 
     return {
