@@ -1,0 +1,72 @@
+[
+  {
+    "id": "eval-1-product-models",
+    "category": "simple_file_discovery",
+    "question": "Where are the product definitions, catalog data, and Product schema fields stored?",
+    "expected_files": [
+      "backend/models/Product.js",
+      "skincare-frontend/src/data/products.js"
+    ]
+  },
+  {
+    "id": "eval-2-vite-frontend",
+    "category": "architecture_understanding",
+    "question": "How is the Vite frontend build configured and what packages does it use?",
+    "expected_files": [
+      "skincare-frontend/vite.config.js",
+      "skincare-frontend/package.json"
+    ]
+  },
+  {
+    "id": "eval-3-auth-registration",
+    "category": "authentication",
+    "question": "Where is user authentication, registration, and user accounts implemented?",
+    "expected_files": [
+      "backend/models/User.js",
+      "skincare-frontend/src/pages/Login.jsx",
+      "skincare-frontend/src/pages/Register.jsx"
+    ]
+  },
+  {
+    "id": "eval-4-database-schemas",
+    "category": "database",
+    "question": "Where are MongoDB Mongoose database models defined for products, users, and reviews?",
+    "expected_files": [
+      "backend/models/Product.js",
+      "backend/models/User.js",
+      "backend/models/BrandReview.js"
+    ]
+  },
+  {
+    "id": "eval-5-backend-server",
+    "category": "api_behavior",
+    "question": "Where is the Express backend server entry point and main API setup?",
+    "expected_files": [
+      "backend/server.js",
+      "backend/package.json"
+    ]
+  },
+  {
+    "id": "eval-6-cart-context",
+    "category": "frontend_backend_flow",
+    "question": "Where is shopping cart state and cart sidebar components managed in React?",
+    "expected_files": [
+      "skincare-frontend/src/context/CartContext.jsx",
+      "skincare-frontend/src/components/CartSidebar.jsx"
+    ]
+  },
+  {
+    "id": "eval-7-payment-gateway",
+    "category": "synchronization_or_payment",
+    "question": "Where is the PayHere payment gateway button or checkout button implemented?",
+    "expected_files": [
+      "skincare-frontend/src/components/PayHereButton.jsx"
+    ]
+  },
+  {
+    "id": "eval-8-nonexistent-docker",
+    "category": "unknown_nonexistent",
+    "question": "Where is Kubernetes deployment manifest or Docker Compose setup located?",
+    "expected_files": []
+  }
+]
