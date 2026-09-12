@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { checkBackendHealth } from "@/lib/api";
+import { checkBackendHealth, API_BASE_URL } from "@/lib/api";
 import StatusRow, { type StatusState } from "@/components/StatusRow";
 
 /**
@@ -39,7 +39,7 @@ export default function SystemStatusCard() {
       setDatabaseState("unavailable");
       setAiState("unavailable");
       setGithubState("unavailable");
-      setErrorMessage("Couldn't reach the backend. Is it running on http://localhost:8000?");
+      setErrorMessage(`Couldn't reach the backend at ${API_BASE_URL}. If hosted on a free-tier platform (such as Render), it may take 30–60 seconds to wake up from sleep.`);
     }
   };
 

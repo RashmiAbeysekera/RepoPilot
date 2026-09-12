@@ -47,7 +47,11 @@ app = FastAPI(
 )
 
 # --- CORS ---------------------------------------------------------------
-allowed_origins = list({FRONTEND_ORIGIN, "http://localhost:3000", "http://127.0.0.1:3000"})
+# Parse configured frontend origins (supports comma-separated list for production, preview, and local)
+raw_origins = [orig.strip() for orig in FRONTEND_ORIGIN.split(",") if orig.strip()]
+dev_fallback_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+allowed_origins = list(dict.fromkeys(raw_origins + dev_fallback_origins))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -210,3 +214,12 @@ def health_check() -> dict[str, str]:
         "ai": ai_status,
         "github": github_status,
     }
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    logger.info("Starting RepoPilot AI backend on 0.0.0.0:%d", port)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)

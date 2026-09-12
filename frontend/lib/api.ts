@@ -8,7 +8,7 @@
 // Next.js exposes to browser (client-side) code. Anything without that
 // prefix stays server-only. Our backend URL is not secret, so it's safe
 // to expose here — but a database URL or API key never would be.
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
 
 // -------------------------------------------------------------------------

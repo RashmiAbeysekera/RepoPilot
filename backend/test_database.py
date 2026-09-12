@@ -8,6 +8,6 @@ This is a convenience script, not a pytest test. Pytest tests live in backend/te
 from app.core.database import check_database_health
 
 if check_database_health():
-    print("✅ Database connection successful!")
+    print("[OK] Database connection successful!")
 else:
-    print("❌ Database connection failed. Check your DATABASE_URL in backend/.env")
+    print("[FAIL] Database connection failed. Check your DATABASE_URL in backend/.env")

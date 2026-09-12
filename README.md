@@ -8,9 +8,9 @@ This is an incremental learning project — each day adds a new layer of full-st
 
 ## Project Status
 
-**Day 12 — Production Engineering + AI Evaluation**
+**Day 13 — Production Deployment, Observability & Smoke Tests**
 
-RepoPilot now features its first complete end-to-end RAG pipeline, enabling natural language question answering grounded in repository code context powered by Google Gemini:
+RepoPilot is an AI-powered repository intelligence assistant that indexes GitHub repositories, chunks source code, creates 384-dimensional dense vector embeddings with Sentence Transformers, stores them in Supabase PostgreSQL with pgvector, and delivers grounded RAG question answering and read-only agentic codebase investigation using Google Gemini.
 
 ```
                      GitHub
@@ -863,7 +863,7 @@ The React frontend (`frontend/components/AskRepoPilot.tsx`) includes:
 
 ---
 
-### 11. Known Limitations & Recommendations for Day 13
+### 11. Known Limitations & Recommendations from Day 12
 
 1. **Process-Local Rate Limiting**:
    - *Current State*: Rate limiting is stored in Python process memory. In a multi-worker production deployment (e.g. Gunicorn with multiple Uvicorn workers), limits are tracked per-worker rather than globally.
@@ -874,6 +874,310 @@ The React frontend (`frontend/components/AskRepoPilot.tsx`) includes:
 3. **Streaming Agent Responses (SSE)**:
    - *Current State*: The agent collects its investigation steps and returns the full trace upon completion.
    - *Recommendation*: Stream tool execution events in real-time via Server-Sent Events (SSE) or WebSockets so developers can watch the agent's live reasoning process.
+
+---
+
+## Day 13 — Production Deployment, Observability & Smoke Testing Guide
+
+### 1. Project Overview & Architecture
+
+RepoPilot AI is designed for zero-cost, persistent, free-tier deployment across modern cloud services:
+
+```
+                                  [ Public Internet / Developer ]
+                                                 │
+                                                 ▼
+                                     ┌───────────────────────┐
+                                     │     Vercel Edge       │
+                                     │  Next.js 16 Frontend  │
+                                     │  (Turbopack, React 19)│
+                                     └───────────┬───────────┘
+                                                 │ NEXT_PUBLIC_API_URL
+                                                 │ HTTPS / JSON
+                                                 ▼
+┌───────────────────────┐            ┌───────────────────────┐
+│  GitHub Public Repos  │            │     Render.com        │
+│    REST API v3        │◄───────────┤   FastAPI Backend     │
+│   (Contents, Files)   │            │(Python 3.12, Uvicorn) │
+└───────────────────────┘            └───────────┬───────────┘
+            │                                    │
+            │ Webhook Push Events                │ SQLAlchemy 2.0
+            ▼ (HMAC-SHA256)                      │ pgvector cosine distance
+┌───────────────────────┐                        ▼
+│  GitHub Webhooks /    │────────────►┌───────────────────────┐
+│     n8n Workflow      │             │  Supabase PostgreSQL  │
+└───────────────────────┘             │  (pgvector, 384-dim)  │
+                                      └───────────┬───────────┘
+                                                  │
+                                                  │ Grounded Context
+                                                  ▼
+                                      ┌───────────────────────┐
+                                      │   Google Gemini API   │
+                                      │  (gemini-3.5-flash)   │
+                                      └───────────────────────┘
+```
+
+---
+
+### 2. Required Environment Variables
+
+#### Backend (`backend/.env` & Render Dashboard)
+
+| Variable | Required | Default | Purpose / Example |
+| :--- | :---: | :---: | :--- |
+| `DATABASE_URL` | **Yes** | — | Supabase PostgreSQL connection URI (`postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres`) |
+| `FRONTEND_ORIGIN` | **Yes** | `http://localhost:3000` | Comma-separated list of allowed frontend domains for CORS (`https://repopilot.vercel.app,https://repopilot-preview.vercel.app`) |
+| `PORT` | Auto | `8000` | Server listening port. Provided automatically by Render/Railway |
+| `GEMINI_API_KEY` | **Yes** | — | Google AI Studio API key for RAG generation and agent reasoning |
+| `GEMINI_MODEL` | No | `gemini-3.5-flash` | Gemini model identifier |
+| `GEMINI_MAX_RETRIES` | No | `3` | Maximum retry attempts with exponential backoff on transient 503 / 429 errors |
+| `GITHUB_WEBHOOK_SECRET`| Optional | — | Secret token for validating GitHub push webhook HMAC-SHA256 signatures |
+| `RAG_SIMILARITY_THRESHOLD` | No | `0.20` | Minimum cosine similarity threshold for retrieved chunks |
+| `MAX_AGENT_ITERATIONS` | No | `5` | Maximum execution iterations for the read-only agent |
+| `RATE_LIMIT_ENABLED` | No | `true` | Enables sliding-window rate limiting on AI endpoints |
+| `AI_RATE_LIMIT_PER_MINUTE` | No | `15` | Per-minute AI query ceiling (aligns with Gemini free-tier limits) |
+
+#### Frontend (`frontend/.env.local` & Vercel Dashboard)
+
+| Variable | Required | Default | Purpose / Example |
+| :--- | :---: | :---: | :--- |
+| `NEXT_PUBLIC_API_URL` | **Yes** | `http://localhost:8000` | Public URL of the deployed FastAPI backend (`https://repopilot-backend.onrender.com`) |
+
+> [!CAUTION]
+> Never put `GEMINI_API_KEY`, `DATABASE_URL`, or `GITHUB_WEBHOOK_SECRET` in frontend variables. Only variables prefixed with `NEXT_PUBLIC_` are bundled into the client browser application.
+
+---
+
+### 3. Local Development Setup
+
+#### Backend Setup
+```bash
+# 1. Navigate to backend
+cd backend
+
+# 2. Create virtual environment and activate
+python -m venv venv
+venv\Scripts\activate       # Windows
+# source venv/bin/activate  # Linux/macOS
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Copy environment template
+cp .env.example .env
+# Edit backend/.env with your DATABASE_URL and GEMINI_API_KEY
+
+# 5. Verify database connectivity
+python test_database.py
+
+# 6. Start local FastAPI development server
+uvicorn app.main:app --reload --port 8000
+```
+
+#### Frontend Setup
+```bash
+# 1. Navigate to frontend
+cd frontend
+
+# 2. Install dependencies
+npm install
+
+# 3. Copy environment template
+cp .env.local.example .env.local
+
+# 4. Start local Next.js development server
+npm run dev
+# Open http://localhost:3000 in your browser
+```
+
+---
+
+### 4. Supabase Database & pgvector Setup
+
+RepoPilot uses persistent PostgreSQL storage hosted on Supabase:
+
+1. **Create Supabase Project**:
+   - Create a free PostgreSQL database project at [supabase.com](https://supabase.com).
+2. **Enable pgvector Extension**:
+   - In Supabase SQL Editor:
+     ```sql
+     CREATE EXTENSION IF NOT EXISTS vector;
+     ```
+3. **Run Schema Migrations**:
+   - Execute Alembic migrations from your local backend:
+     ```bash
+     cd backend
+     venv\Scripts\activate
+     alembic upgrade head
+     ```
+   - This creates all required tables: `repositories`, `repository_files`, `code_chunks`, and `chunk_embeddings` with pgvector indexes.
+4. **Retrieve Connection String**:
+   - In Supabase Dashboard -> **Project Settings** -> **Database** -> **Connection string** (URI).
+   - Use port 5432 (Session) or 6543 (Transaction pooler with IPv4 support).
+
+---
+
+### 5. Backend Deployment Steps (Render)
+
+Render provides free cloud hosting for Python web services:
+
+1. **Push Code to GitHub**:
+   - Ensure the repository is pushed to your GitHub account (`main` branch).
+2. **Create New Web Service**:
+   - In [Render Dashboard](https://dashboard.render.com), click **New +** -> **Web Service**.
+   - Connect your GitHub repository.
+3. **Configure Service Settings**:
+   - **Name**: `repopilot-backend`
+   - **Region**: Closest to your database (e.g. Oregon / Frankfurt / Singapore)
+   - **Branch**: `main`
+   - **Root Directory**: `backend`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Instance Type**: `Free`
+4. **Configure Health Check Path**:
+   - In **Advanced** -> **Health Check Path**, enter: `/api/health`
+5. **Add Environment Variables**:
+   - `DATABASE_URL`: Your Supabase connection string
+   - `FRONTEND_ORIGIN`: Your deployed Vercel URL (e.g. `https://repopilot-app.vercel.app`)
+   - `GEMINI_API_KEY`: Your Google Gemini API key
+   - `GEMINI_MODEL`: `gemini-3.5-flash`
+   - `GITHUB_WEBHOOK_SECRET`: (Optional/recommended for push sync)
+   - `RATE_LIMIT_ENABLED`: `true`
+   - `AI_RATE_LIMIT_PER_MINUTE`: `15`
+6. **Deploy**:
+   - Click **Create Web Service**. Render will build and deploy the backend. Note the public service URL (e.g., `https://repopilot-backend.onrender.com`).
+
+*(Alternatively, use Render Blueprints by clicking **New +** -> **Blueprint** and pointing to `render.yaml` in the project root).*
+
+---
+
+### 6. Frontend Deployment Steps (Vercel)
+
+Vercel provides free edge hosting optimized for Next.js:
+
+1. **Import Project into Vercel**:
+   - Go to [Vercel Dashboard](https://vercel.com) -> **Add New** -> **Project**.
+   - Select your `RepoPilot` GitHub repository.
+2. **Configure Project Settings**:
+   - **Framework Preset**: `Next.js`
+   - **Root Directory**: Click **Edit** and choose `frontend`.
+   - **Build Command**: `npm run build` (default)
+   - **Output Directory**: `.next` (default)
+3. **Configure Environment Variables**:
+   - Name: `NEXT_PUBLIC_API_URL`
+   - Value: Your deployed Render backend URL (`https://repopilot-backend.onrender.com` without trailing slash)
+   - Target: Production, Preview, Development
+4. **Deploy**:
+   - Click **Deploy**. Vercel will compile TypeScript, bundle Next.js, and output a live production domain (e.g., `https://repopilot-app.vercel.app`).
+
+---
+
+### 7. Cross-Service Wiring (CORS & API Base URL)
+
+To enable seamless communication between frontend and backend:
+
+1. **Update Backend CORS**:
+   - In Render Dashboard for `repopilot-backend`, go to **Environment** -> `FRONTEND_ORIGIN`.
+   - Set the value to your live Vercel domain:
+     ```
+     https://repopilot-app.vercel.app
+     ```
+   - If using preview deployments, provide comma-separated domains:
+     ```
+     https://repopilot-app.vercel.app,https://repopilot-app-git-main-user.vercel.app
+     ```
+   - Render will automatically re-deploy with updated CORS headers.
+2. **Verify Communication**:
+   - Open your live Vercel frontend URL.
+   - The **System Status** card will ping `/api/health` and display green indicators for Backend, Database, AI, and GitHub.
+
+---
+
+### 8. GitHub Webhook Delivery Configuration
+
+For automated incremental synchronization when code is pushed to GitHub:
+
+1. Go to your target public GitHub repository on github.com.
+2. Navigate to **Settings** -> **Webhooks** -> **Add webhook**.
+3. **Payload URL**: `https://<your-render-backend>.onrender.com/api/webhooks/github`
+4. **Content type**: `application/json`
+5. **Secret**: Enter the exact secret string you set in `GITHUB_WEBHOOK_SECRET` on Render.
+6. **Which events**: Select **Just the push event**.
+7. **Active**: Check **Active** and click **Add webhook**.
+8. GitHub will send a test ping. Upon subsequent pushes to the default branch, RepoPilot automatically re-chunks and re-embeds only the modified and added files, deleting removed records safely.
+
+---
+
+### 9. n8n Workflow Integration
+
+RepoPilot includes a pre-built n8n workflow template located at `backend/app/resources/n8n_workflow.json`:
+
+1. **Import Template**:
+   - Open n8n -> **Workflows** -> **Import from File** -> Select `backend/app/resources/n8n_workflow.json`.
+2. **Configure Webhook**:
+   - Point the n8n Webhook node to receive GitHub push payloads.
+3. **Dynamic Branch Comparison**:
+   - The workflow dynamically extracts `repository.default_branch` from the webhook payload and only triggers synchronization if `ref === "refs/heads/" + default_branch` (supporting `main`, `master`, `develop`, etc.).
+4. **Forward to RepoPilot**:
+   - The HTTP Request node forwards the payload to `https://<your-backend-url>/api/webhooks/github` with the required `x-github-event: push` and `x-hub-signature-256` headers.
+
+---
+
+### 10. Security Notes & Production Hardening
+
+- **Read-Only Agent Guardrails**: The investigation agent operates strictly with read-only tools (`find_files_by_name`, `search_code_content`, `read_file_snippet`, `list_directory_tree`). It cannot write, delete, execute shell commands, or modify files.
+- **Path Traversal Protection**: All file path access is strictly sanitized. Path traversal attempts (`../../etc/passwd`, absolute filesystem paths) are caught and rejected.
+- **Repository Isolation**: All SQL queries, vector searches, file reads, and agent operations require a `repository_id` and are filtered strictly by tenant repository ID. Repo A can never see or search Repo B chunks.
+- **Secret Scrubbing Filter**: All stdout/stderr logs are passed through `SecretScrubbingFilter`. Google AI keys (`AIza...`), GitHub tokens (`ghp_...`), database URLs (`postgresql://...`), and Authorization headers are automatically redacted to `[REDACTED_CREDENTIAL]`.
+- **Prompt Injection Delimiters**: User queries and untrusted repository code are strictly isolated using explicit markdown boundaries (`=== REPOSITORY CONTEXT ===` and `=== USER QUESTION ===`) with explicit system instructions prohibiting instruction overriding.
+- **HMAC-SHA256 Webhook Verification**: When `GITHUB_WEBHOOK_SECRET` is configured, push payloads are verified using constant-time `hmac.compare_digest`. Invalid signatures return HTTP 401.
+
+---
+
+### 11. Free-Tier Characteristics & Cold Starts
+
+- **Render Cold Starts**: Render's free tier spins down web services after 15 minutes of inactivity. The first incoming request will experience a **30 to 60 second delay** while the container wakes up. The frontend UI provides proactive guidance informing users during this cold-start period.
+- **Supabase Free Limits**: Supabase provides up to 500MB database storage and 2 free projects. For small-to-medium open source repositories, this is more than sufficient for thousands of code chunks and 384-dimensional vector embeddings.
+- **Gemini Free Tier Quotas**: Google Gemini 3.5 Flash free tier provides 15 Requests Per Minute (RPM) and 1,500 Requests Per Day (RPD). RepoPilot enforces a sliding-window rate limiter (15 req/min) to prevent quota exhaustion.
+
+---
+
+### 12. Troubleshooting Steps
+
+| Symptom | Probable Cause | Resolution |
+| :--- | :--- | :--- |
+| **System Status shows "Couldn't reach the backend"** | Render instance is sleeping or `NEXT_PUBLIC_API_URL` is wrong. | Wait 45 seconds for Render cold start. Verify `NEXT_PUBLIC_API_URL` in Vercel settings matches your Render URL without trailing slash. |
+| **Database status shows "unavailable"** | Incorrect `DATABASE_URL` or Supabase project paused. | Check Supabase dashboard to verify database is active. Run `python test_database.py` locally to verify connection string. |
+| **CORS error in browser console** | `FRONTEND_ORIGIN` does not match Vercel URL. | In Render Dashboard, add your Vercel URL to `FRONTEND_ORIGIN` (include both `https://...` and custom domains if any). |
+| **AI status shows "not-configured"** | `GEMINI_API_KEY` missing in backend environment. | In Render Dashboard, add `GEMINI_API_KEY` from Google AI Studio and trigger deploy. |
+| **Webhook returns HTTP 401** | `GITHUB_WEBHOOK_SECRET` mismatch. | Ensure the secret configured in GitHub Webhook settings matches `GITHUB_WEBHOOK_SECRET` on Render. |
+| **Build fails on Vercel** | Incorrect root directory. | Ensure Vercel Root Directory is set to `frontend`. |
+
+---
+
+### 13. Production Smoke Test Verification Checklist
+
+Every core feature has been verified via the automated 140-test suite and local production builds:
+
+- [x] **1. Frontend Build & Static Generation**: Next.js 16 compiles cleanly with Turbopack, React 19, and static route generation.
+- [x] **2. Frontend Reachability & Dynamic URL**: `lib/api.ts` dynamically loads `NEXT_PUBLIC_API_URL` with graceful offline states.
+- [x] **3. Backend Health Endpoint**: `/api/health` accurately reports individual and aggregated health for Backend, Database, AI, and GitHub.
+- [x] **4. Public Repository Import**: `POST /api/repositories/import` validates public GitHub repositories and extracts metadata.
+- [x] **5. Repository File Ingestion**: Ingests files, enforces 500KB caps, ignores binaries (`.png`, `.zip`, `.exe`), and classifies source vs docs.
+- [x] **6. Ingestion Resilience (Simulated Fetch Failure)**: GitHub API rate limits or connection errors during ingestion never delete existing records.
+- [x] **7. Genuinely Deleted File Cleanup**: Sync removes files genuinely deleted on GitHub while preserving valid repository files.
+- [x] **8. Scoped Semantic Search**: pgvector cosine similarity search strictly isolates results to the target repository.
+- [x] **9. Grounded RAG Answers**: Synthesizes natural language answers based solely on retrieved code context with prompt injection protection.
+- [x] **10. Source Traceability**: Returns exact file paths, line ranges, and similarity scores for every cited evidence chunk.
+- [x] **11. Honest Fallback on Unknowns**: Answers honestly with an explicit low-confidence message when context is insufficient.
+- [x] **12. Read-Only Agent Mode**: Agent executes only verified read-only tools within bounded iteration limits (max 5).
+- [x] **13. Agent Path Traversal Protection**: Directory traversal attempts outside repository root are strictly blocked.
+- [x] **14. Cross-Repository Tenant Isolation**: Operations on Repository A never modify, expose, or delete Repository B records.
+- [x] **15. Webhook Signature Verification**: Webhook endpoint strictly validates HMAC-SHA256 signatures when configured.
+- [x] **16. n8n Dynamic Branch Sync**: Workflow payload dynamically validates against repository default branch.
+- [x] **17. Zero Secret Exposure**: No credentials in git history, client-side bundles, or operational log streams.
+
 
 
 

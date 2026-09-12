@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: repopilot-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_MAX_RETRIES
+        value: "3"
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: RAG_SIMILARITY_THRESHOLD
+        value: "0.20"
+      - key: MAX_AGENT_ITERATIONS
+        value: "5"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: AI_RATE_LIMIT_PER_MINUTE
+        value: "15"
