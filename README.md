@@ -1178,6 +1178,86 @@ Every core feature has been verified via the automated 140-test suite and local 
 - [x] **16. n8n Dynamic Branch Sync**: Workflow payload dynamically validates against repository default branch.
 - [x] **17. Zero Secret Exposure**: No credentials in git history, client-side bundles, or operational log streams.
 
+---
 
+### 14. Docker Containerization (Backend)
 
+RepoPilot provides a production-ready, security-hardened `Dockerfile` and `.dockerignore` for the FastAPI backend.
 
+> [!NOTE]
+> **Architecture Note**:
+> The currently live production deployment uses Render (Web Service) and Vercel (Next.js). Docker is provided as a standardized container environment for local execution, team development, and future container-based hosting (e.g. AWS ECS, GCP Cloud Run, or Render Docker runtime) without altering any working application code.
+
+#### 1. Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) or Docker Engine (Linux).
+- On Windows: Ensure the WSL 2 backend or Hyper-V is enabled and Docker Desktop is running.
+- Your Supabase PostgreSQL database URL and optional Gemini API key.
+
+#### 2. Build the Backend Docker Image
+From the repository root:
+```bash
+docker build -t repopilot-backend:latest ./backend
+```
+This builds an image named `repopilot-backend:latest` using the official `python:3.12-slim-bookworm` base, creates a non-root user (`repopilot`), installs dependencies with cached layers, and packages the application without secrets.
+
+#### 3. Run the Container
+You can pass your environment variables either using an external `.env` file or directly with `-e` flags.
+
+**Option A: Using an environment file (Recommended)**
+```bash
+docker run -d \
+  --name repopilot-backend-app \
+  -p 8000:8000 \
+  --env-file ./backend/.env \
+  repopilot-backend:latest
+```
+
+**Option B: Using individual environment flags**
+```bash
+docker run -d \
+  --name repopilot-backend-app \
+  -p 8000:8000 \
+  -e DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres" \
+  -e FRONTEND_ORIGIN="http://localhost:3000" \
+  -e GEMINI_API_KEY="your_gemini_api_key_here" \
+  repopilot-backend:latest
+```
+
+> [!IMPORTANT]
+> Never copy or bake `.env` files into Docker images. The `.dockerignore` file explicitly excludes `.env` to prevent credential leakage.
+
+#### 4. Test the Health Endpoint
+Once running, verify that the containerized backend is responsive:
+
+```bash
+# Using curl
+curl http://localhost:8000/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "backend": "healthy",
+  "database": "healthy",
+  "ai": "healthy",
+  "github": "healthy"
+}
+```
+
+You can also visit `http://localhost:8000/docs` in your browser to inspect interactive Swagger documentation.
+
+#### 5. View Container Logs
+```bash
+docker logs -f repopilot-backend-app
+```
+
+#### 6. Stop and Remove the Container
+When finished, cleanly stop and delete the container:
+```bash
+# Stop the running container
+docker stop repopilot-backend-app
+
+# Remove the container instance
+docker rm repopilot-backend-app
+```
