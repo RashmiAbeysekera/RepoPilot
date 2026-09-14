@@ -35,4 +35,4 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.52.4
 watchfiles==1.2.0
-websockets==17.0.1
+websockets>=13.0.0,<17.0
