@@ -1,5 +1,7 @@
 # RepoPilot AI
 
+> 🌐 **Live Production Application**: [https://repopilot-green.vercel.app/](https://repopilot-green.vercel.app/)
+
 An AI-powered software engineering assistant that connects to public GitHub repositories, indexes source code, and enables developers to understand unfamiliar codebases through grounded RAG question answering.
 
 This is an incremental learning project — each day adds a new layer of full-stack software architecture.
@@ -9,6 +11,8 @@ This is an incremental learning project — each day adds a new layer of full-st
 ## Project Status
 
 **Day 13 — Production Deployment, Observability & Smoke Tests**
+- 🚀 **Live Demo**: [https://repopilot-green.vercel.app/](https://repopilot-green.vercel.app/)
+
 
 RepoPilot is an AI-powered repository intelligence assistant that indexes GitHub repositories, chunks source code, creates 384-dimensional dense vector embeddings with Sentence Transformers, stores them in Supabase PostgreSQL with pgvector, and delivers grounded RAG question answering and read-only agentic codebase investigation using Google Gemini.
 
